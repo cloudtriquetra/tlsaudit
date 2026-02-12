@@ -52,42 +52,55 @@ The approved cipher suites are defined in `approved_ciphers.csv`. Users can easi
 
 **CSV Format:**
 ```
-cipher_name,protocol,rating,format
+cipher_name,protocol,rating,format,key_exchange,signature_algorithm,compliance_standard
 ```
 
 **Columns:**
 - `cipher_name`: The name as reported by servers (OpenSSL format, IANA format, or any other format)
 - `protocol`: TLS version (TLSv1.2 or TLSv1.3)
-- `rating`: Compliance rating (RECOMMENDED, SECURE, or custom values)
+- `rating`: Compliance rating (RECOMMENDED, SECURE, REQUIRED, PQC_RECOMMENDED, or custom values)
 - `format`: Cipher name format (OPENSSL, IANA, or other) - optional, for documentation only
+- `key_exchange`: Key exchange method used (e.g., X25519MLKEM768 for post-quantum cryptography) - optional, for documentation/PQC tracking
+- `signature_algorithm`: Certificate signing algorithm (e.g., RSASSA-PSS, ECDSA) - optional, for documentation
+- `compliance_standard`: Compliance standard applicability (GLOBAL, CHINA_GB/T_38636, EU_TLS, etc.) - optional, defaults to GLOBAL if omitted. Ciphers with standard other than GLOBAL are only included when that standard is explicitly requested
 
 **Examples:**
 
 OpenSSL format cipher:
 ```
-ECDHE-RSA-AES256-GCM-SHA384,TLSv1.2,RECOMMENDED,OPENSSL
+ECDHE-RSA-AES256-GCM-SHA384,TLSv1.2,RECOMMENDED,OPENSSL,,,GLOBAL
 ```
 
 IANA format cipher:
 ```
-TLS_CHACHA20_POLY1305_SHA256,TLSv1.3,RECOMMENDED,IANA
+TLS_CHACHA20_POLY1305_SHA256,TLSv1.3,RECOMMENDED,IANA,,,GLOBAL
 ```
 
 Custom/unknown format:
 ```
-TLS_ECCPWD_WITH_AES_256_GCM_SHA256,TLSv1.2,SECURE,IANA
+TLS_ECCPWD_WITH_AES_256_GCM_SHA256,TLSv1.2,SECURE,IANA,,,GLOBAL
 ```
 
 Same cipher with multiple reported names (add separate rows):
 ```
-ECDHE-RSA-AES256-GCM-SHA384,TLSv1.2,RECOMMENDED,OPENSSL
-TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLSv1.2,RECOMMENDED,IANA
+ECDHE-RSA-AES256-GCM-SHA384,TLSv1.2,RECOMMENDED,OPENSSL,,,GLOBAL
+TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLSv1.2,RECOMMENDED,IANA,,,GLOBAL
 ```
 
 Same cipher name with different protocols (add separate rows):
 ```
-TLS_AES_256_GCM_SHA384,TLSv1.2,SECURE,IANA
-TLS_AES_256_GCM_SHA384,TLSv1.3,RECOMMENDED,IANA
+TLS_AES_256_GCM_SHA384,TLSv1.2,SECURE,IANA,,,GLOBAL
+TLS_AES_256_GCM_SHA384,TLSv1.3,RECOMMENDED,IANA,,,GLOBAL
+```
+
+Post-quantum cryptography cipher with key exchange method documented:
+```
+TLS_ECDHE_KYBER768_RSA_WITH_AES_256_GCM_SHA384,TLSv1.3,PQC_RECOMMENDED,IANA,X25519MLKEM768,RSASSA-PSS,GLOBAL
+```
+
+Regional/compliance-specific cipher (only used with --compliance-standard CHINA_GB/T_38636):
+```
+TLS_SM4_GCM_SM3,TLSv1.3,RECOMMENDED,IANA,,,CHINA_GB/T_38636
 ```
 
 **To customize:**
@@ -190,8 +203,10 @@ python3 ssl_checker.py --url example.com --compliance-standard CHINA_GB/T_38636 
 
 ### Cipher Suite Ratings
 
+- **✅ PQC_RECOMMENDED**: Post-quantum cryptography ciphers meeting best practices
 - **✅ RECOMMENDED**: Modern ciphers meeting best practices (TLS 1.3 AEAD suites, ECDHE with strong authentication)
 - **⚠️ SECURE**: Acceptable for compatibility (ECDHE, DHE with SHA256/384)
+- **⚠️ REQUIRED**: Mandatory ciphers for compliance with specific regulatory standards
 - **❌ NOT_APPROVED**: Weak or deprecated ciphers (anonymous DH, NULL ciphers, export-grade, DES, RC4, MD5, SHA1)
 
 ### Approved Ciphers
