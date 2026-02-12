@@ -161,6 +161,25 @@ python3 ssl_checker.py --url example.com --proxy http://proxy:8080 --json
 - SOCKS proxy format: `socks5://hostname:port`
 - OpenSSL support required (modern versions include proxy support)
 
+### Regulatory Compliance Standards
+
+```bash
+# Scan with global compliance standards (default)
+python3 ssl_checker.py --url example.com
+
+# Scan with China-specific requirements (SM4/SM3 ciphers)
+python3 ssl_checker.py --url example.com --compliance-standard CHINA_GB/T_38636
+
+# Export compliance report
+python3 ssl_checker.py --url example.com --compliance-standard CHINA_GB/T_38636 --json > china_audit.json
+```
+
+**Available Standards:**
+- `GLOBAL` (default) - Global best practices and recommendations
+- `CHINA_GB/T_38636` - China's national cryptographic standards (SM4-GCM-SM3, SM4-CCM-SM3)
+
+**Note:** GLOBAL ciphers are always included. Region-specific ciphers are added when that standard is selected.
+
 ## Compliance Standards
 
 ### TLS Protocol Versions
