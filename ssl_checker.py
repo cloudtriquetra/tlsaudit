@@ -146,7 +146,7 @@ def get_available_ciphers(tls_flag):
         return []
 
 
-def find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers=None):
+def find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers=None, proxy=None, socks_proxy=None):
     """Find all supported ciphers for a TLS version by iteratively testing.
     
     Args:
@@ -182,6 +182,12 @@ def find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers=None)
                 '-cipher', cipher,
                 '-servername', hostname
             ]
+            
+            # Add proxy support if specified
+            if proxy:
+                cmd.extend(['-proxy', proxy])
+            elif socks_proxy:
+                cmd.extend(['-socksport', socks_proxy])
             
             result = subprocess.run(
                 cmd,
@@ -229,7 +235,7 @@ def find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers=None)
     return supported_ciphers
 
 
-def check_tls_version(hostname, port, tls_name, tls_flag, max_ciphers=10):
+def check_tls_version(hostname, port, tls_name, tls_flag, max_ciphers=10, proxy=None, socks_proxy=None):
     """Check if a specific TLS version is supported and get cipher info."""
     try:
         # Run openssl s_client command
@@ -239,6 +245,12 @@ def check_tls_version(hostname, port, tls_name, tls_flag, max_ciphers=10):
             tls_flag,
             '-servername', hostname  # SNI support
         ]
+        
+        # Add proxy support if specified
+        if proxy:
+            cmd.extend(['-proxy', proxy])
+        elif socks_proxy:
+            cmd.extend(['-socksport', socks_proxy])
         
         # For security testing: allow legacy ciphers for older TLS versions
         # This enables detection of weak protocols that may still be supported
@@ -320,7 +332,8 @@ def check_tls_version(hostname, port, tls_name, tls_flag, max_ciphers=10):
             # Both must agree on TLS 1.3 or both not (prevents protocol/cipher mismatch)
             if is_tls13_cipher == protocol_is_tls13:
                 # Find all supported ciphers for this protocol
-                all_ciphers = find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers)
+                all_ciphers = find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers,
+                                                     proxy=proxy, socks_proxy=socks_proxy)
                 # Include the already-negotiated cipher if not in list
                 if cipher not in all_ciphers:
                     all_ciphers.insert(0, cipher)
@@ -471,6 +484,10 @@ Examples:
                         type=int,
                         default=10,
                         help='Max ciphers to enumerate per protocol (default: 10, use 0 for unlimited). Warning: unlimited enumeration is slow and IDS-detectable')
+    parser.add_argument('--proxy',
+                        help='HTTP/HTTPS proxy (e.g., http://proxy.example.com:8080)')
+    parser.add_argument('--socks-proxy',
+                        help='SOCKS proxy (e.g., socks5://proxy.example.com:1080)')
     
     args = parser.parse_args()
     
@@ -495,7 +512,8 @@ Examples:
         
         for tls_name, tls_flag in TLS_VERSIONS.items():
             # Pass max_ciphers to check_tls_version for cipher enumeration
-            result = check_tls_version(hostname, port, tls_name, tls_flag, max_ciphers)
+            result = check_tls_version(hostname, port, tls_name, tls_flag, max_ciphers, 
+                                     proxy=args.proxy, socks_proxy=args.socks_proxy)
             results[tls_name] = result
         
         if args.json:

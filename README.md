@@ -143,6 +143,24 @@ python3 ssl_checker.py --url example.com --ciphers 50
 python3 ssl_checker.py --url example.com --ciphers 0
 ```
 
+### Proxy Support
+
+```bash
+# Scan through HTTP/HTTPS proxy
+python3 ssl_checker.py --url example.com --proxy http://proxy.corp.com:8080
+
+# Scan through SOCKS proxy
+python3 ssl_checker.py --url example.com --socks-proxy socks5://proxy.corp.com:1080
+
+# Combine with other options
+python3 ssl_checker.py --url example.com --proxy http://proxy:8080 --json
+```
+
+**Proxy Requirements:**
+- HTTP proxy format: `http://hostname:port` or `https://hostname:port`
+- SOCKS proxy format: `socks5://hostname:port`
+- OpenSSL support required (modern versions include proxy support)
+
 ## Compliance Standards
 
 ### TLS Protocol Versions
