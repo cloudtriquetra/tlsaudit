@@ -7,16 +7,16 @@ Thanks for your interest in contributing! Here's how you can help:
 The easiest way to contribute is by updating the approved cipher list:
 
 1. **Edit `approved_ciphers.csv`**
-   - Add new ciphers with format: `cipher_name,protocol,rating,format`
+   - Add new ciphers with format: `cipher_name,protocol,rating,format,key_exchange,signature_algorithm,compliance_standard`
    - Keep the file organized (group by protocol/rating)
    - Include the cipher name exactly as servers report it
 
 2. **Example:**
    ```csv
-   TLS_ECCPWD_WITH_AES_256_GCM_SHA256,TLSv1.2,RECOMMENDED,IANA
+   TLS_SM4_GCM_SM3,TLSv1.3,REQUIRED,IANA,,SM3,CHINA_GB/T_38636
    ```
 
-3. **Submit a Pull Request**
+3. **Submit your updated file**
    - Include why you're adding/updating these ciphers
    - Reference any compliance standards (NIST, PCI-DSS, etc.)
 
@@ -30,12 +30,12 @@ The easiest way to contribute is by updating the approved cipher list:
 
 For code changes:
 
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/your-feature`
-3. **Keep changes focused** - one feature/fix per PR
+1. **Identify the issue or feature**
+2. **Create your changes** locally
+3. **Keep changes focused** - one feature/fix at a time
 4. **Test your changes** manually against real servers
 5. **Maintain the existing code style**
-6. **Submit a Pull Request** with clear description
+6. **Submit your changes** with clear description
 
 ## Coding Guidelines
 
@@ -47,12 +47,12 @@ For code changes:
 
 ## Questions?
 
-Feel free to open an issue for discussions or questions about cipher compliance, TLS best practices, or feature requests.
+Feel free to reach out with questions about cipher compliance, TLS best practices, or feature requests.
 
 ## Compliance Standards
 
 When suggesting ciphers, reference:
-- NIST SP 800-52 Rev. 2 (TLS Guidelines)
-- Mozilla SSL Configuration Generator
+- NIST SP 800-52 Rev. 2 (TLS Guidelines): https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-52r2.pdf
+- Mozilla SSL Configuration Generator: https://ssl-config.mozilla.org/
 - PCI DSS Requirements
 - OWASP Transport Layer Protection

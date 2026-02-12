@@ -2,15 +2,12 @@
 
 Verify TLS/SSL compliance. Audit cipher suites and protocol versions against modern security standards. Get instant compliance ratings and format details.
 
-**Repository:** https://github.com/cloudtriquetra/tlsaudit
-
 > 🔒 **Secure by default** - Validates against TLS 1.2+ with RECOMMENDED/SECURE cipher filtering. Easy to customize for your compliance requirements.
 
 ## Quick Start
 
 ```bash
-# Clone the repository
-git clone https://github.com/cloudtriquetra/tlsaudit.git
+# Extract the project
 cd tlsaudit
 
 # Scan a domain
@@ -41,8 +38,8 @@ python3 ssl_checker.py --url example.com --ciphers 50
 ## Installation
 
 ```bash
-# Clone or download the project
-cd sslchecker
+# Extract or download the project
+cd tlsaudit
 
 # No external dependencies required - uses standard library and system OpenSSL
 ```
