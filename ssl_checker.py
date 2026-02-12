@@ -304,6 +304,38 @@ def check_tls_version(hostname, port, tls_name, tls_flag, max_ciphers=10, proxy=
         }
         expected_protocol = expected_map.get(tls_flag, tls_name)
         
+        # CRITICAL: Check if connection was ever established
+        # "CONNECTED" in output means openssl successfully connected to the server
+        # If connection never established, this is a network issue (WiFi off, DNS fail, etc)
+        connection_established = 'CONNECTED' in output
+        
+        # NETWORK ERRORS: Check FIRST before server errors
+        # These indicate the problem is network connectivity, not server configuration
+        
+        # If we never connected and got a non-zero exit, it's a network problem
+        if not connection_established and result.returncode != 0:
+            # Try to provide specific diagnostic based on error message
+            
+            # Connection refused - server not listening on that port
+            if 'Connection refused' in output or 'connect:errno' in output:
+                return {'status': 'ERROR', 'error': f'Connection refused by {hostname}:{port}. Is the server running on this port?'}
+            
+            # DNS resolution failed
+            if 'getaddrinfo failed' in output or 'nodename nor servname provided' in output or 'Name or service not known' in output:
+                return {'status': 'ERROR', 'error': f'DNS resolution failed for "{hostname}". Check hostname spelling and DNS availability.'}
+            
+            # Network unreachable (no route to host - indicates network/WiFi issue)
+            if 'Network is unreachable' in output or 'No route to host' in output or 'Unreachable' in output:
+                return {'status': 'ERROR', 'error': f'Network unreachable to {hostname}:{port}. Check network connectivity and WiFi status.'}
+            
+            # Host is down/unreachable (ICMP errors)
+            if 'Host is down' in output or 'host unreachable' in output.lower():
+                return {'status': 'ERROR', 'error': f'Host unreachable: {hostname}:{port}. Target server is offline or network path unavailable.'}
+            
+            # Generic network connectivity error
+            return {'status': 'ERROR', 'error': f'Unable to connect to {hostname}:{port}. Check network connectivity, WiFi status, and firewall rules.'}
+        
+        
         # CLIENT UNSUPPORTED: OpenSSL doesn't support this protocol at all
         # Indicator: protocol-related error + no negotiated protocol
         # OpenSSL 1.x: "no protocols available"
@@ -357,20 +389,36 @@ def check_tls_version(hostname, port, tls_name, tls_flag, max_ciphers=10, proxy=
         if cipher in ['0000', '(NONE)'] and negotiated_protocol:
             return {'status': 'SERVER_UNSUPPORTED', 'reason': 'Server rejected this protocol'}
         
-        # Error cases
-        if 'Connection refused' in output or 'connect:errno' in output:
-            return {'status': 'ERROR', 'error': 'Connection refused'}
+        # Additional error cases not caught above
+        if 'timeout' in output.lower() or 'timed out' in output.lower():
+            return {'status': 'ERROR', 'error': f'Connection timeout to {hostname}:{port}. Server not responding. Check network connectivity and firewall rules.'}
         
+        if 'Permission denied' in output:
+            return {'status': 'ERROR', 'error': f'Permission denied connecting to {hostname}:{port}. May require elevated privileges or port access.'}
+        
+        if 'Certificate_required' in output or 'certificate required' in output.lower():
+            return {'status': 'ERROR', 'error': 'Server requires client certificate authentication. Not currently supported.'}
+        
+        # Generic SSL/TLS error
         error_match = re.search(r'error:([0-9A-F]+)', output)
-        error = f"SSL Error {error_match.group(1)}" if error_match else "Connection failed"
-        return {'status': 'ERROR', 'error': error}
+        if error_match:
+            error_code = error_match.group(1)
+            error_desc = {
+                '14094410': 'SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE - Server cannot negotiate a protocol/cipher',
+                '1416D086': 'SSL_R_TLSV1_ALERT_INTERNAL_ERROR - Server internal error',
+                '14077410': 'SSL_R_SSL_HANDSHAKE_FAILURE - General handshake failure',
+            }.get(error_code, f'OpenSSL error {error_code}')
+            return {'status': 'ERROR', 'error': f'SSL/TLS Error: {error_desc}'}
+        
+        return {'status': 'ERROR', 'error': f'Connection to {hostname}:{port} failed. Check server accessibility, port number, and proxy configuration.'}
+
     
     except subprocess.TimeoutExpired:
-        return {'status': 'ERROR', 'error': 'Timeout'}
+        return {'status': 'ERROR', 'error': f'Connection timeout to {hostname}:{port}. Server not responding within 10 seconds. Try with a longer timeout or check network connectivity.'}
     except FileNotFoundError:
-        return {'status': 'ERROR', 'error': 'OpenSSL not found'}
+        return {'status': 'ERROR', 'error': 'OpenSSL executable not found. Install OpenSSL 1.1.1+ and ensure it\'s in your PATH.'}
     except Exception as e:
-        return {'status': 'ERROR', 'error': str(e)[:50]}
+        return {'status': 'ERROR', 'error': f'Unexpected error: {str(e)[:100]}'}
 
 
 def check_tls_support(hostname, port):

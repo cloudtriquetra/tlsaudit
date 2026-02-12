@@ -300,6 +300,30 @@ SSL/TLS Scanner Results for: example.com:443
 
 ## Troubleshooting
 
+### Network Connectivity Issues
+
+The scanner now provides detailed diagnostics for network-level problems:
+
+- **"Network unreachable to [host]:443. Check network connectivity and WiFi status."**
+  - WiFi is off or network is unavailable
+  - Solution: Check WiFi connection and network availability
+
+- **"DNS resolution failed for [hostname]. Check hostname spelling and DNS availability."**
+  - Hostname cannot be resolved
+  - Solution: Verify the hostname spelling and DNS server availability
+
+- **"Connection refused by [host]:443. Is the server running on this port?"**
+  - Server is not listening on the specified port
+  - Solution: Verify the correct port and check if the service is running
+
+- **"Connection timeout to [host]:443. Server not responding within 10 seconds."**
+  - Server is unreachable or not responding
+  - Solution: Check network connectivity and firewall rules
+
+- **"Host unreachable: [host]:443. Target server is offline or network path unavailable."**
+  - Network path to the server is blocked
+  - Solution: Verify the server is online and network/firewall rules allow access
+
 ### "OpenSSL not found"
 Ensure OpenSSL is installed and in your PATH:
 ```bash
@@ -309,9 +333,6 @@ which openssl
 
 ### "Protocol not supported (Client)"
 Your OpenSSL version doesn't support that protocol. Install a more recent version or compile OpenSSL with legacy support enabled.
-
-### Timeout errors
-Network connectivity issue or server rejecting connections. Verify the hostname/port and try again.
 
 ### No ciphers detected for supported protocol
 The server may have restrictive cipher policies. Try with `--ciphers 0` for full enumeration.
