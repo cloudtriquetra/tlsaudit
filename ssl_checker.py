@@ -36,12 +36,13 @@ APPROVED_CIPHERS = {}
 def load_approved_ciphers(csv_file='approved_ciphers.csv'):
     """Load approved cipher suites from CSV file.
     
-    CSV format: cipher_name,protocol,rating,format,key_exchange
+    CSV format: cipher_name,protocol,rating,format,key_exchange,signature_algorithm
     
     Each row represents one cipher that can be matched. Same cipher name can appear
     multiple times with different protocols (e.g., TLS 1.2 and TLS 1.3).
     Format column (OPENSSL or IANA) is for documentation purposes.
     Key_exchange column documents the key exchange method (e.g., X25519MLKEM768 for PQC).
+    Signature_algorithm column documents the certificate signing algorithm (e.g., RSASSA-PSS).
     """
     global APPROVED_CIPHERS
     
@@ -68,11 +69,13 @@ def load_approved_ciphers(csv_file='approved_ciphers.csv'):
                 cipher_format = row.get('format', 'UNKNOWN').strip()
                 # Key exchange column is optional, for PQC tracking
                 key_exchange = row.get('key_exchange', '').strip()
+                # Signature algorithm column is optional, for certificate auth tracking
+                signature_algorithm = row.get('signature_algorithm', '').strip()
                 
                 # Store cipher with protocol as part of the lookup key
                 # This allows same cipher name with different protocols
                 key = (cipher_name, protocol)
-                APPROVED_CIPHERS[key] = (rating, cipher_name, cipher_format, key_exchange)
+                APPROVED_CIPHERS[key] = (rating, cipher_name, cipher_format, key_exchange, signature_algorithm)
         
         return True
     except Exception as e:
@@ -83,16 +86,16 @@ def load_approved_ciphers(csv_file='approved_ciphers.csv'):
 def check_cipher_compliance(cipher, protocol):
     """Check if a cipher is approved according to compliance standards.
     
-    Returns: (rating, cipher_name, format, key_exchange) where rating is 'PQC_RECOMMENDED', 
-    'RECOMMENDED', 'SECURE', or 'NOT_APPROVED'
+    Returns: (rating, cipher_name, format, key_exchange, signature_algorithm) where rating is 
+    'PQC_RECOMMENDED', 'RECOMMENDED', 'SECURE', or 'NOT_APPROVED'
     """
     # Look up using both cipher name and protocol
     key = (cipher, protocol)
     if key in APPROVED_CIPHERS:
-        rating, cipher_name, cipher_format, key_exchange = APPROVED_CIPHERS[key]
-        return (rating, cipher_name, cipher_format, key_exchange)
+        rating, cipher_name, cipher_format, key_exchange, signature_algorithm = APPROVED_CIPHERS[key]
+        return (rating, cipher_name, cipher_format, key_exchange, signature_algorithm)
     
-    return ('NOT_APPROVED', 'Not in approved cipher list', 'N/A', '')
+    return ('NOT_APPROVED', 'Not in approved cipher list', 'N/A', '', '')
 
 
 def extract_hostname_port(url):
@@ -417,7 +420,7 @@ def output_json_report(hostname, port, results):
             })
             # Add compliance info for each cipher
             for cipher in result.get('ciphers', []):
-                compliance_rating, matched_cipher, cipher_format, key_exchange = check_cipher_compliance(cipher, result.get('protocol', ''))
+                compliance_rating, matched_cipher, cipher_format, key_exchange, signature_algorithm = check_cipher_compliance(cipher, result.get('protocol', ''))
                 cipher_info = {
                     'name': cipher,
                     'format': cipher_format,
@@ -425,6 +428,8 @@ def output_json_report(hostname, port, results):
                 }
                 if key_exchange:
                     cipher_info['key_exchange'] = key_exchange
+                if signature_algorithm:
+                    cipher_info['signature_algorithm'] = signature_algorithm
                 protocol_info['ciphers'].append(cipher_info)
         elif status == 'SERVER_UNSUPPORTED':
             protocol_info['reason'] = 'Server does not support this protocol version'
@@ -516,13 +521,15 @@ Examples:
                     ciphers = result.get('ciphers', [result.get('cipher', 'Unknown')])
                     print(f"  Ciphers ({len(ciphers)}):")
                     for cipher in ciphers:
-                        compliance_rating, cipher_name, cipher_format, key_exchange = check_cipher_compliance(cipher, result.get('protocol', ''))
+                        compliance_rating, cipher_name, cipher_format, key_exchange, signature_algorithm = check_cipher_compliance(cipher, result.get('protocol', ''))
                         status_icon = '✅' if compliance_rating in ('PQC_RECOMMENDED', 'RECOMMENDED') else '⚠️ ' if compliance_rating == 'SECURE' else '❓'
                         print(f"    {status_icon} {cipher}")
                         if cipher_format and cipher_format not in ['N/A', 'Not in approved cipher list']:
                             print(f"       Format: {cipher_format}")
                         if key_exchange:
                             print(f"       Key Exchange: {key_exchange}")
+                        if signature_algorithm:
+                            print(f"       Signature: {signature_algorithm}")
                 elif status == 'SERVER_UNSUPPORTED':
                     print(f"✗ {tls_name:<15} - NOT SUPPORTED (Server)")
                     print(f"  Server does not support this protocol version")
