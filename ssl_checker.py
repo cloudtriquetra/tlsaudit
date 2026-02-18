@@ -36,8 +36,27 @@ APPROVED_CIPHERS = {}
 OPENSSL_EXECUTABLE = 'openssl'
 
 
-def find_tongsuo():
-    """Try to find tongsuo/openssl executable in common locations."""
+def find_tongsuo(custom_path=None):
+    """Try to find tongsuo/openssl executable in common locations.
+    
+    Args:
+        custom_path: Custom path provided by user (takes precedence)
+    """
+    # If user provided a custom path, try that first
+    if custom_path:
+        try:
+            result = subprocess.run(
+                [custom_path, 'version'],
+                capture_output=True,
+                timeout=2,
+                text=True
+            )
+            if result.returncode == 0 and ('tongsuo' in result.stdout.lower() or 'openssl' in result.stdout.lower()):
+                return custom_path
+        except:
+            pass
+        # If custom path fails, continue to default search
+    
     tongsuo_paths = [
         '/opt/tongsuo/bin/openssl',  # Tongsuo openssl binary
         'tongsuo',  # System PATH
@@ -63,8 +82,13 @@ def find_tongsuo():
     return None
 
 
-def load_approved_ciphers(csv_file='approved_ciphers.csv', compliance_standard=None):
+def load_approved_ciphers(csv_file='approved_ciphers.csv', compliance_standard=None, tongsuo_path=None):
     """Load approved cipher suites from CSV file.
+    
+    Args:
+        csv_file: Path to cipher configuration CSV
+        compliance_standard: Compliance standard to use (GLOBAL, CHINA_GB/T_38636, etc.)
+        tongsuo_path: Custom path to tongsuo/openssl binary
     
     CSV format: cipher_name,protocol,rating,format,key_exchange,signature_algorithm,compliance_standard
     
@@ -79,12 +103,15 @@ def load_approved_ciphers(csv_file='approved_ciphers.csv', compliance_standard=N
     
     # If China compliance standard is specified, try to use tongsuo
     if compliance_standard == 'CHINA_GB/T_38636':
-        tongsuo_path = find_tongsuo()
-        if tongsuo_path:
-            OPENSSL_EXECUTABLE = tongsuo_path
-            print(f"Using tongsuo for China standard compliance: {tongsuo_path}", file=sys.stderr)
+        tongsuo_bin = find_tongsuo(custom_path=tongsuo_path)
+        if tongsuo_bin:
+            OPENSSL_EXECUTABLE = tongsuo_bin
+            print(f"Using tongsuo for China standard compliance: {tongsuo_bin}", file=sys.stderr)
         else:
-            print(f"Warning: China standard requested but tongsuo not found. Using standard openssl.", file=sys.stderr)
+            if tongsuo_path:
+                print(f"Warning: Custom tongsuo path '{tongsuo_path}' not found or invalid. Using standard openssl.", file=sys.stderr)
+            else:
+                print(f"Warning: China standard requested but tongsuo not found. Using standard openssl.", file=sys.stderr)
             OPENSSL_EXECUTABLE = 'openssl'
     
     # Get the directory where the script is located
@@ -588,11 +615,13 @@ Examples:
     parser.add_argument('--compliance-standard',
                         default='GLOBAL',
                         help='Compliance standard to enforce (default: GLOBAL, options: GLOBAL, CHINA_GB/T_38636, etc.)')
+    parser.add_argument('--tongsuo-path',
+                        help='Custom path to tongsuo/openssl binary (e.g., /opt/tongsuo/bin/openssl or /custom/path/tongsuo). Only used with --compliance-standard CHINA_GB/T_38636')
     
     args = parser.parse_args()
     
     # Load approved ciphers from CSV, filtered by compliance standard
-    if not load_approved_ciphers(compliance_standard=args.compliance_standard):
+    if not load_approved_ciphers(compliance_standard=args.compliance_standard, tongsuo_path=args.tongsuo_path):
         print("Error: Could not load approved ciphers configuration", file=sys.stderr)
         sys.exit(1)
     

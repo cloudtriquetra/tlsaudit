@@ -222,6 +222,9 @@ python3 ssl_checker.py --url example.com
 # Scan with China-specific requirements (SM4/SM3 ciphers)
 python3 ssl_checker.py --url example.com --compliance-standard CHINA_GB/T_38636
 
+# Specify custom tongsuo path (if installed in non-standard location)
+python3 ssl_checker.py --url bank.example.com --compliance-standard CHINA_GB/T_38636 --tongsuo-path /custom/path/tongsuo
+
 # Export compliance report
 python3 ssl_checker.py --url example.com --compliance-standard CHINA_GB/T_38636 --json > china_audit.json
 ```
@@ -230,11 +233,33 @@ python3 ssl_checker.py --url example.com --compliance-standard CHINA_GB/T_38636 
 - `GLOBAL` (default) - Global best practices and recommendations
 - `CHINA_GB/T_38636` - China's national cryptographic standards (SM4-GCM-SM3, SM4-CCM-SM3)
 
-**Note:** GLOBAL ciphers are always included. Region-specific ciphers are added when that standard is selected.
+**Tongsuo Path Options:**
+
+The script automatically searches for Tongsuo in these locations (in order):
+1. `/opt/tongsuo/bin/openssl` (recommended)
+2. `tongsuo` (in system PATH)
+3. `/usr/local/bin/tongsuo`
+4. `/opt/tongsuo/bin/tongsuo`
+5. `/opt/bin/tongsuo`
+6. `/usr/bin/tongsuo`
+
+If Tongsuo is installed in a different location, use `--tongsuo-path`:
+```bash
+# Explicit path to tongsuo or openssl binary
+python3 ssl_checker.py --url bank.cn --compliance-standard CHINA_GB/T_38636 --tongsuo-path /usr/local/tongsuo/bin/openssl
+
+# Or wherever your custom installation is
+python3 ssl_checker.py --url bank.cn --compliance-standard CHINA_GB/T_38636 --tongsuo-path /opt/custom/tongsuo/bin/openssl
+```
+
+**Note:** 
+- GLOBAL ciphers are always included
+- Region-specific ciphers (SM4/SM3) are only added when that standard is selected
+- The `--tongsuo-path` option is only used with `--compliance-standard CHINA_GB/T_38636`
 
 **Automatic Tongsuo Selection:**
 When you specify `--compliance-standard CHINA_GB/T_38636`:
-1. The script automatically searches for Tongsuo/BabaSSL in common locations
+1. The script searches for Tongsuo in standard locations (or uses your `--tongsuo-path`)
 2. If found, it uses Tongsuo's `openssl` binary which supports SM4/SM3 algorithms
 3. If not found, it falls back to standard OpenSSL and prints a warning
 4. All standard ciphers and China-specific ciphers (SM4/SM3) are tested
@@ -243,6 +268,9 @@ When you specify `--compliance-standard CHINA_GB/T_38636`:
 ```bash
 # Comprehensive China compliance audit with full cipher enumeration
 python3 ssl_checker.py --url bank.example.com.cn --compliance-standard CHINA_GB/T_38636 --ciphers 0 --json > audit_report.json
+
+# With custom tongsuo path
+python3 ssl_checker.py --url bank.example.com.cn --compliance-standard CHINA_GB/T_38636 --tongsuo-path /opt/tongsuo/bin/openssl --ciphers 0 --json > audit_report.json
 
 # Output will include:
 # - Standard international ciphers: ECDHE-RSA-AES256-GCM-SHA384 (GLOBAL)
