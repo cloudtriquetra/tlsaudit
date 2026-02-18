@@ -32,6 +32,9 @@ APPROVED_PROTOCOLS = {
 # Approved cipher suites (loaded from CSV)
 APPROVED_CIPHERS = {}
 
+# Track the currently requested compliance standard for reporting
+REQUESTED_COMPLIANCE_STANDARD = 'GLOBAL'
+
 
 def load_approved_ciphers(csv_file='approved_ciphers.csv', compliance_standard=None):
     """Load approved cipher suites from CSV file.
@@ -45,7 +48,11 @@ def load_approved_ciphers(csv_file='approved_ciphers.csv', compliance_standard=N
     Signature_algorithm column documents the certificate signing algorithm (e.g., RSASSA-PSS).
     Compliance_standard column specifies applicability (GLOBAL, CHINA_GB/T_38636, EU_TLS, etc).
     """
-    global APPROVED_CIPHERS
+    global APPROVED_CIPHERS, REQUESTED_COMPLIANCE_STANDARD
+    
+    # Store the requested compliance standard for later use in check_cipher_compliance
+    if compliance_standard:
+        REQUESTED_COMPLIANCE_STANDARD = compliance_standard
     
     # Get the directory where the script is located
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -100,6 +107,12 @@ def check_cipher_compliance(cipher, protocol):
     key = (cipher, protocol)
     if key in APPROVED_CIPHERS:
         rating, cipher_name, cipher_format, key_exchange, signature_algorithm, compliance_standard = APPROVED_CIPHERS[key]
+        
+        # If cipher is marked as GLOBAL and a specific standard is requested,
+        # report it as compliant with the requested standard
+        if compliance_standard == 'GLOBAL' and REQUESTED_COMPLIANCE_STANDARD != 'GLOBAL':
+            return (rating, cipher_name, cipher_format, key_exchange, signature_algorithm, REQUESTED_COMPLIANCE_STANDARD)
+        
         return (rating, cipher_name, cipher_format, key_exchange, signature_algorithm, compliance_standard)
     
     return ('NOT_APPROVED', 'Not in approved cipher list', 'N/A', '', '', '')
