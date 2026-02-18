@@ -32,8 +32,35 @@ APPROVED_PROTOCOLS = {
 # Approved cipher suites (loaded from CSV)
 APPROVED_CIPHERS = {}
 
-# Track the currently requested compliance standard for reporting
-REQUESTED_COMPLIANCE_STANDARD = 'GLOBAL'
+# OpenSSL executable to use (can be 'openssl' or 'tongsuo')
+OPENSSL_EXECUTABLE = 'openssl'
+
+
+def find_tongsuo():
+    """Try to find tongsuo/openssl executable in common locations."""
+    tongsuo_paths = [
+        '/opt/tongsuo/bin/openssl',  # Tongsuo openssl binary
+        'tongsuo',  # System PATH
+        '/usr/local/bin/tongsuo',
+        '/opt/tongsuo/bin/tongsuo',
+        '/opt/bin/tongsuo',
+        '/usr/bin/tongsuo',
+    ]
+    
+    for path in tongsuo_paths:
+        try:
+            result = subprocess.run(
+                [path, 'version'],
+                capture_output=True,
+                timeout=2,
+                text=True
+            )
+            if result.returncode == 0 and ('tongsuo' in result.stdout.lower() or 'openssl' in result.stdout.lower()):
+                return path
+        except:
+            pass
+    
+    return None
 
 
 def load_approved_ciphers(csv_file='approved_ciphers.csv', compliance_standard=None):
@@ -48,11 +75,17 @@ def load_approved_ciphers(csv_file='approved_ciphers.csv', compliance_standard=N
     Signature_algorithm column documents the certificate signing algorithm (e.g., RSASSA-PSS).
     Compliance_standard column specifies applicability (GLOBAL, CHINA_GB/T_38636, EU_TLS, etc).
     """
-    global APPROVED_CIPHERS, REQUESTED_COMPLIANCE_STANDARD
+    global APPROVED_CIPHERS, OPENSSL_EXECUTABLE
     
-    # Store the requested compliance standard for later use in check_cipher_compliance
-    if compliance_standard:
-        REQUESTED_COMPLIANCE_STANDARD = compliance_standard
+    # If China compliance standard is specified, try to use tongsuo
+    if compliance_standard == 'CHINA_GB/T_38636':
+        tongsuo_path = find_tongsuo()
+        if tongsuo_path:
+            OPENSSL_EXECUTABLE = tongsuo_path
+            print(f"Using tongsuo for China standard compliance: {tongsuo_path}", file=sys.stderr)
+        else:
+            print(f"Warning: China standard requested but tongsuo not found. Using standard openssl.", file=sys.stderr)
+            OPENSSL_EXECUTABLE = 'openssl'
     
     # Get the directory where the script is located
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -107,12 +140,6 @@ def check_cipher_compliance(cipher, protocol):
     key = (cipher, protocol)
     if key in APPROVED_CIPHERS:
         rating, cipher_name, cipher_format, key_exchange, signature_algorithm, compliance_standard = APPROVED_CIPHERS[key]
-        
-        # If cipher is marked as GLOBAL and a specific standard is requested,
-        # report it as compliant with the requested standard
-        if compliance_standard == 'GLOBAL' and REQUESTED_COMPLIANCE_STANDARD != 'GLOBAL':
-            return (rating, cipher_name, cipher_format, key_exchange, signature_algorithm, REQUESTED_COMPLIANCE_STANDARD)
-        
         return (rating, cipher_name, cipher_format, key_exchange, signature_algorithm, compliance_standard)
     
     return ('NOT_APPROVED', 'Not in approved cipher list', 'N/A', '', '', '')
@@ -146,7 +173,7 @@ def get_available_ciphers(tls_flag):
         else:
             cipher_spec = 'ALL:eNULL'
         
-        cmd = ['openssl', 'ciphers', '-v', cipher_spec]
+        cmd = [OPENSSL_EXECUTABLE, 'ciphers', '-v', cipher_spec]
         
         result = subprocess.run(
             cmd,
@@ -196,7 +223,7 @@ def find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers=None,
     for cipher in ciphers_to_test:
         try:
             cmd = [
-                'openssl', 's_client',
+                OPENSSL_EXECUTABLE, 's_client',
                 '-connect', f'{hostname}:{port}',
                 tls_flag,
                 '-cipher', cipher,
@@ -260,7 +287,7 @@ def check_tls_version(hostname, port, tls_name, tls_flag, max_ciphers=10, proxy=
     try:
         # Run openssl s_client command
         cmd = [
-            'openssl', 's_client',
+            OPENSSL_EXECUTABLE, 's_client',
             '-connect', f'{hostname}:{port}',
             tls_flag,
             '-servername', hostname  # SNI support
@@ -429,7 +456,8 @@ def check_tls_version(hostname, port, tls_name, tls_flag, max_ciphers=10, proxy=
     except subprocess.TimeoutExpired:
         return {'status': 'ERROR', 'error': f'Connection timeout to {hostname}:{port}. Server not responding within 10 seconds. Try with a longer timeout or check network connectivity.'}
     except FileNotFoundError:
-        return {'status': 'ERROR', 'error': 'OpenSSL executable not found. Install OpenSSL 1.1.1+ and ensure it\'s in your PATH.'}
+        exe_name = 'Tongsuo' if 'tongsuo' in OPENSSL_EXECUTABLE else 'OpenSSL'
+        return {'status': 'ERROR', 'error': f'{exe_name} executable not found. Install {exe_name} and ensure it\'s in your PATH.'}
     except Exception as e:
         return {'status': 'ERROR', 'error': f'Unexpected error: {str(e)[:100]}'}
 

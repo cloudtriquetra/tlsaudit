@@ -34,6 +34,7 @@ python3 ssl_checker.py --url example.com --ciphers 50
 - Python 3.6+
 - OpenSSL 1.1.1+ (for full TLS 1.3 support)
 - Network access to target server
+- **Optional:** Tongsuo/BabaSSL (required for China GB/T 38636 SM4/SM3 cipher detection)
 
 ## Installation
 
@@ -43,6 +44,47 @@ cd tlsaudit
 
 # No external dependencies required - uses standard library and system OpenSSL
 ```
+
+### Optional: Installing Tongsuo for China Compliance Scanning
+
+To scan servers for China GB/T 38636 compliance (SM4/SM3 cipher support), install Tongsuo/BabaSSL:
+
+**macOS:**
+```bash
+# Option 1: Build from source
+git clone https://github.com/Tongsuo-Project/tongsuo.git
+cd tongsuo
+mkdir build && cd build
+cmake ..
+make
+sudo make install
+
+# Option 2: Install via homebrew (if available)
+brew install tongsuo
+```
+
+**Linux:**
+```bash
+# Build from source
+git clone https://github.com/Tongsuo-Project/tongsuo.git
+cd tongsuo
+./Configure
+make
+sudo make install
+```
+
+**Verification:**
+```bash
+tongsuo version
+# or if installed in /opt/tongsuo/
+/opt/tongsuo/bin/openssl version
+```
+
+**How it works:**
+- When `--compliance-standard CHINA_GB/T_38636` is specified, the script automatically detects and uses Tongsuo
+- If Tongsuo is not found, the script falls back to standard OpenSSL with a warning
+- Standard OpenSSL is used for all other compliance standards (GLOBAL, etc.)
+- Tongsuo provides SM4 encryption and SM3 hash algorithm support required by China's national cryptographic standards
 
 ## Configuration
 
@@ -189,6 +231,23 @@ python3 ssl_checker.py --url example.com --compliance-standard CHINA_GB/T_38636 
 - `CHINA_GB/T_38636` - China's national cryptographic standards (SM4-GCM-SM3, SM4-CCM-SM3)
 
 **Note:** GLOBAL ciphers are always included. Region-specific ciphers are added when that standard is selected.
+
+**Automatic Tongsuo Selection:**
+When you specify `--compliance-standard CHINA_GB/T_38636`:
+1. The script automatically searches for Tongsuo/BabaSSL in common locations
+2. If found, it uses Tongsuo's `openssl` binary which supports SM4/SM3 algorithms
+3. If not found, it falls back to standard OpenSSL and prints a warning
+4. All standard ciphers and China-specific ciphers (SM4/SM3) are tested
+
+**Example: China Compliance Scan**
+```bash
+# Comprehensive China compliance audit with full cipher enumeration
+python3 ssl_checker.py --url bank.example.com.cn --compliance-standard CHINA_GB/T_38636 --ciphers 0 --json > audit_report.json
+
+# Output will include:
+# - Standard international ciphers: ECDHE-RSA-AES256-GCM-SHA384 (GLOBAL)
+# - China-specific ciphers if supported: TLS_SM4_GCM_SM3 (CHINA_GB/T_38636)
+```
 
 ## Compliance Standards
 
@@ -345,6 +404,24 @@ Ensure OpenSSL is installed and in your PATH:
 openssl version
 which openssl
 ```
+
+### "Tongsuo not found" (when using China compliance standard)
+If you see: `Warning: China standard requested but tongsuo not found. Using standard openssl.`
+
+This means:
+- China compliance scanning (`--compliance-standard CHINA_GB/T_38636`) was requested
+- Tongsuo/BabaSSL was not found in standard locations
+- The script fell back to standard OpenSSL
+- SM4/SM3 ciphers cannot be detected (standard OpenSSL doesn't support them)
+
+**Solution:**
+Install Tongsuo following the instructions in the "Optional: Installing Tongsuo for China Compliance Scanning" section above.
+
+Common Tongsuo installation paths the script searches:
+- `/opt/tongsuo/bin/openssl` (recommended)
+- `/usr/local/bin/tongsuo`
+- `/opt/tongsuo/bin/tongsuo`
+- System PATH (`tongsuo` or `gmssl` command)
 
 ### "Protocol not supported (Client)"
 Your OpenSSL version doesn't support that protocol. Install a more recent version or compile OpenSSL with legacy support enabled.
