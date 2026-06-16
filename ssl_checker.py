@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
 TLS Version and Cipher Scanner
-This script checks which TLS versions and ciphers are supported by a server.
-Uses openssl s_client for maximum compatibility.
+Uses nmap ssl-enum-ciphers for fast, comprehensive cipher enumeration.
 """
 
 import subprocess
 import sys
-import re
+import xml.etree.ElementTree as ET
 import json
 import argparse
 import csv
@@ -15,13 +14,8 @@ import os
 from urllib.parse import urlparse
 from datetime import datetime
 
-# TLS versions to test (in order from oldest to newest)
-TLS_VERSIONS = {
-    'TLSv1.0': '-tls1',
-    'TLSv1.1': '-tls1_1',
-    'TLSv1.2': '-tls1_2',
-    'TLSv1.3': '-tls1_3',
-}
+# TLS versions tracked, in order oldest to newest
+TLS_VERSIONS = ['TLSv1.0', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']
 
 # Approved TLS protocol versions
 APPROVED_PROTOCOLS = {
@@ -32,143 +26,63 @@ APPROVED_PROTOCOLS = {
 # Approved cipher suites (loaded from CSV)
 APPROVED_CIPHERS = {}
 
-# OpenSSL executable to use (can be 'openssl' or 'tongsuo')
-OPENSSL_EXECUTABLE = 'openssl'
 
-
-def find_tongsuo(custom_path=None):
-    """Try to find tongsuo/openssl executable in common locations.
-    
-    Args:
-        custom_path: Custom path provided by user (takes precedence)
-    """
-    # If user provided a custom path, try that first
-    if custom_path:
-        try:
-            result = subprocess.run(
-                [custom_path, 'version'],
-                capture_output=True,
-                timeout=2,
-                text=True
-            )
-            if result.returncode == 0 and ('tongsuo' in result.stdout.lower() or 'openssl' in result.stdout.lower()):
-                return custom_path
-        except:
-            pass
-        # If custom path fails, continue to default search
-    
-    tongsuo_paths = [
-        '/opt/tongsuo/bin/openssl',  # Tongsuo openssl binary
-        'tongsuo',  # System PATH
-        '/usr/local/bin/tongsuo',
-        '/opt/tongsuo/bin/tongsuo',
-        '/opt/bin/tongsuo',
-        '/usr/bin/tongsuo',
-    ]
-    
-    for path in tongsuo_paths:
-        try:
-            result = subprocess.run(
-                [path, 'version'],
-                capture_output=True,
-                timeout=2,
-                text=True
-            )
-            if result.returncode == 0 and ('tongsuo' in result.stdout.lower() or 'openssl' in result.stdout.lower()):
-                return path
-        except:
-            pass
-    
-    return None
-
-
-def load_approved_ciphers(csv_file='approved_ciphers.csv', compliance_standard=None, tongsuo_path=None):
+def load_approved_ciphers(csv_file='approved_ciphers.csv', compliance_standard=None):
     """Load approved cipher suites from CSV file.
-    
-    Args:
-        csv_file: Path to cipher configuration CSV
-        compliance_standard: Compliance standard to use (GLOBAL, CHINA_GB/T_38636, etc.)
-        tongsuo_path: Custom path to tongsuo/openssl binary
-    
+
     CSV format: cipher_name,protocol,rating,format,key_exchange,signature_algorithm,compliance_standard
-    
-    Each row represents one cipher that can be matched. Same cipher name can appear
-    multiple times with different protocols (e.g., TLS 1.2 and TLS 1.3).
-    Format column (OPENSSL or IANA) is for documentation purposes.
-    Key_exchange column documents the key exchange method (e.g., X25519MLKEM768 for PQC).
-    Signature_algorithm column documents the certificate signing algorithm (e.g., RSASSA-PSS).
-    Compliance_standard column specifies applicability (GLOBAL, CHINA_GB/T_38636, EU_TLS, etc).
     """
-    global APPROVED_CIPHERS, OPENSSL_EXECUTABLE
-    
-    # If China compliance standard is specified, try to use tongsuo
-    if compliance_standard == 'CHINA_GB/T_38636':
-        tongsuo_bin = find_tongsuo(custom_path=tongsuo_path)
-        if tongsuo_bin:
-            OPENSSL_EXECUTABLE = tongsuo_bin
-            print(f"Using tongsuo for China standard compliance: {tongsuo_bin}", file=sys.stderr)
-        else:
-            if tongsuo_path:
-                print(f"Warning: Custom tongsuo path '{tongsuo_path}' not found or invalid. Using standard openssl.", file=sys.stderr)
-            else:
-                print(f"Warning: China standard requested but tongsuo not found. Using standard openssl.", file=sys.stderr)
-            OPENSSL_EXECUTABLE = 'openssl'
-    
-    # Get the directory where the script is located
+    global APPROVED_CIPHERS
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     csv_path = os.path.join(script_dir, csv_file)
-    
+
     if not os.path.exists(csv_path):
         print(f"Warning: Cipher config file not found: {csv_path}", file=sys.stderr)
         return False
-    
+
+    if compliance_standard == 'CHINA_GB/T_38636':
+        print(
+            "Warning: CHINA_GB/T_38636 SM cipher detection requires the openssl/tongsuo backend. "
+            "The nmap backend will check discovered ciphers against the approved list but cannot "
+            "enumerate SM-specific ciphers.",
+            file=sys.stderr,
+        )
+
     try:
-        with open(csv_path, 'r') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                # Skip empty rows and comments
-                cipher_name = row['cipher_name'].strip()
-                if not cipher_name or cipher_name.startswith('#'):
-                    continue
-                
-                protocol = row['protocol'].strip()
-                rating = row['rating'].strip()
-                # Format column is optional, just for documentation
-                cipher_format = row.get('format', 'UNKNOWN').strip()
-                # Key exchange column is optional, for PQC tracking
-                key_exchange = row.get('key_exchange', '').strip()
-                # Signature algorithm column is optional, for certificate auth tracking
-                signature_algorithm = row.get('signature_algorithm', '').strip()
-                # Compliance standard column is optional, defaults to GLOBAL
-                std = row.get('compliance_standard', 'GLOBAL').strip()
-                
-                # Filter by compliance standard if specified
-                if compliance_standard and std != compliance_standard and std != 'GLOBAL':
-                    continue
-                
-                # Store cipher with protocol as part of the lookup key
-                # This allows same cipher name with different protocols
-                key = (cipher_name, protocol)
-                APPROVED_CIPHERS[key] = (rating, cipher_name, cipher_format, key_exchange, signature_algorithm, std)
-        
+        _load_csv_rows(csv_path, compliance_standard)
         return True
     except Exception as e:
         print(f"Error loading cipher config: {e}", file=sys.stderr)
         return False
 
 
+def _load_csv_rows(csv_path, compliance_standard):
+    """Read CSV rows and populate APPROVED_CIPHERS."""
+    with open(csv_path, 'r') as f:
+        for row in csv.DictReader(f):
+            cipher_name = row['cipher_name'].strip()
+            if not cipher_name or cipher_name.startswith('#'):
+                continue
+            std = row.get('compliance_standard', 'GLOBAL').strip()
+            if compliance_standard and std != compliance_standard and std != 'GLOBAL':
+                continue
+            key = (cipher_name, row['protocol'].strip())
+            APPROVED_CIPHERS[key] = (
+                row['rating'].strip(),
+                cipher_name,
+                row.get('format', 'UNKNOWN').strip(),
+                row.get('key_exchange', '').strip(),
+                row.get('signature_algorithm', '').strip(),
+                std,
+            )
+
+
 def check_cipher_compliance(cipher, protocol):
-    """Check if a cipher is approved according to compliance standards.
-    
-    Returns: (rating, cipher_name, format, key_exchange, signature_algorithm, compliance_standard) 
-    where rating is 'PQC_RECOMMENDED', 'RECOMMENDED', 'SECURE', 'REQUIRED', or 'NOT_APPROVED'
-    """
-    # Look up using both cipher name and protocol
-    key = (cipher, protocol)
-    if key in APPROVED_CIPHERS:
-        rating, cipher_name, cipher_format, key_exchange, signature_algorithm, compliance_standard = APPROVED_CIPHERS[key]
-        return (rating, cipher_name, cipher_format, key_exchange, signature_algorithm, compliance_standard)
-    
+    """Return (rating, name, format, key_exchange, signature_algorithm, standard) for a cipher."""
+    entry = APPROVED_CIPHERS.get((cipher, protocol))
+    if entry:
+        return entry
     return ('NOT_APPROVED', 'Not in approved cipher list', 'N/A', '', '', '')
 
 
@@ -176,413 +90,246 @@ def extract_hostname_port(url):
     """Extract hostname and port from URL."""
     parsed = urlparse(url if url.startswith('http') else f'https://{url}')
     hostname = parsed.hostname or parsed.path.split('/')[0]
-    port = parsed.port or 443
-    return hostname, port
+    return hostname, parsed.port or 443
 
 
-def get_available_ciphers(tls_flag):
-    """Get list of ALL ciphers available for a specific TLS version from OpenSSL."""
-    try:
-        # Use 'ALL' to get every cipher OpenSSL knows about, not just DEFAULT
-        # This ensures we don't miss weak/deprecated ciphers during testing
-        if tls_flag == '-tls1':
-            # For TLS 1.0, include weak ciphers and null ciphers
-            cipher_spec = 'ALL:eNULL:@SECLEVEL=0'
-        elif tls_flag == '-tls1_1':
-            # For TLS 1.1, include weak ciphers and null ciphers
-            cipher_spec = 'ALL:eNULL:@SECLEVEL=0'
-        elif tls_flag == '-tls1_2':
-            # For TLS 1.2, get all ciphers (including weak ones for security testing)
-            cipher_spec = 'ALL:eNULL'
-        elif tls_flag == '-tls1_3':
-            # TLS 1.3 has limited cipher suites
-            cipher_spec = 'ALL'
-        else:
-            cipher_spec = 'ALL:eNULL'
-        
-        cmd = [OPENSSL_EXECUTABLE, 'ciphers', '-v', cipher_spec]
-        
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=5,
-            text=True
+# ---------------------------------------------------------------------------
+# nmap scanning
+# ---------------------------------------------------------------------------
+
+def _build_nmap_cmd(hostname, port, socks_proxy, proxy):
+    cmd = ['nmap', '--script', 'ssl-enum-ciphers', '-p', str(port), hostname, '-oX', '-']
+    if socks_proxy:
+        cmd.extend(['--proxies', socks_proxy])
+    elif proxy:
+        print(
+            "Warning: HTTP proxy is not supported by the nmap backend. "
+            "Use --socks-proxy with a SOCKS4/5 proxy instead.",
+            file=sys.stderr,
         )
-        
-        ciphers = []
-        for line in result.stdout.strip().split('\n'):
-            if line.strip():
-                parts = line.split()
-                if parts:
-                    ciphers.append(parts[0])
-        return ciphers
-    except:
-        return []
+    return cmd
 
 
-def find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers=None, proxy=None, socks_proxy=None):
-    """Find all supported ciphers for a TLS version by iteratively testing.
-    
-    Args:
-        max_ciphers: Limit cipher enumeration (None = no limit, test all)
-                    Use with caution - full enumeration is slow but accurate for compliance
-    """
-    supported_ciphers = []
-    seen = set()
-    available_ciphers = get_available_ciphers(tls_flag)
-    
-    if not available_ciphers:
-        return []
-    
-    # Map TLS flag to expected protocol name
-    expected_map = {
-        '-tls1': 'TLSv1',
-        '-tls1_1': 'TLSv1.1',
-        '-tls1_2': 'TLSv1.2',
-        '-tls1_3': 'TLSv1.3'
-    }
-    expected_protocol = expected_map.get(tls_flag, tls_name)
-    
-    # Limit ciphers tested if specified (for performance)
-    ciphers_to_test = available_ciphers if max_ciphers is None else available_ciphers[:max_ciphers]
-    
-    # Try each cipher individually
-    for cipher in ciphers_to_test:
-        try:
-            cmd = [
-                OPENSSL_EXECUTABLE, 's_client',
-                '-connect', f'{hostname}:{port}',
-                tls_flag,
-                '-cipher', cipher,
-                '-servername', hostname
-            ]
-            
-            # Add proxy support if specified
-            if proxy:
-                cmd.extend(['-proxy', proxy])
-            elif socks_proxy:
-                cmd.extend(['-socksport', socks_proxy])
-            
-            result = subprocess.run(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=5,
-                text=True
-            )
-            
-            output = result.stdout + result.stderr
-            
-            # CRITICAL: Verify both protocol AND cipher negotiated correctly
-            # Extract protocol
-            negotiated_protocol = None
-            protocol_match = re.search(r'Protocol\s+:\s+([a-zA-Z0-9.]+)', output)
-            if protocol_match:
-                negotiated_protocol = protocol_match.group(1)
-            else:
-                protocol_match = re.search(r'New,\s+(TLSv[\d.]+),\s+Cipher', output)
-                if protocol_match:
-                    negotiated_protocol = protocol_match.group(1)
-            
-            # Extract cipher
-            cipher_match = re.search(r'Cipher\s+is\s+(.+?)(?:\n|$)', output)
-            if not cipher_match:
-                cipher_match = re.search(r'Cipher\s+:\s+(.+?)(?:\n|$)', output)
-            
-            negotiated_cipher = None
-            if cipher_match:
-                negotiated_cipher = cipher_match.group(1).strip()
-            
-            # Validate: Both protocol AND cipher must match expectations
-            # Protocol must equal expected (no downgrades)
-            # Cipher must not be (NONE) or 0000
-            if (negotiated_protocol == expected_protocol and 
-                negotiated_cipher and 
-                negotiated_cipher not in ['(NONE)', '0000'] and 
-                negotiated_cipher not in seen):
-                supported_ciphers.append(negotiated_cipher)
-                seen.add(negotiated_cipher)
-        except:
-            pass
-    
-    return supported_ciphers
-
-
-def check_tls_version(hostname, port, tls_name, tls_flag, max_ciphers=10, proxy=None, socks_proxy=None):
-    """Check if a specific TLS version is supported and get cipher info."""
+def _run_nmap(cmd, hostname, port):
+    """Execute nmap and return (stdout, error_dict). One of them is None."""
     try:
-        # Run openssl s_client command
-        cmd = [
-            OPENSSL_EXECUTABLE, 's_client',
-            '-connect', f'{hostname}:{port}',
-            tls_flag,
-            '-servername', hostname  # SNI support
-        ]
-        
-        # Add proxy support if specified
-        if proxy:
-            cmd.extend(['-proxy', proxy])
-        elif socks_proxy:
-            cmd.extend(['-socksport', socks_proxy])
-        
-        # For security testing: allow legacy ciphers for older TLS versions
-        # This enables detection of weak protocols that may still be supported
-        if tls_flag in ['-tls1', '-tls1_1']:
-            cmd.extend(['-cipher', 'DEFAULT:@SECLEVEL=0'])
-        
-        result = subprocess.run(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=10,
-            text=True
-        )
-        
-        output = result.stdout + result.stderr
-        
-        # Extract actual negotiated protocol version
-        negotiated_protocol = None
-        # Handle both "Protocol : TLSv1.2" and "New, TLSv1.3, Cipher is ..."
-        protocol_match = re.search(r'Protocol\s+:\s+([a-zA-Z0-9.]+)', output)
-        if protocol_match:
-            negotiated_protocol = protocol_match.group(1)
-        else:
-            # TLS 1.3 format: "New, TLSv1.3, Cipher is ..."
-            protocol_match = re.search(r'New,\s+(TLSv[\d.]+),\s+Cipher', output)
-            if protocol_match:
-                negotiated_protocol = protocol_match.group(1)
-        
-        # Extract cipher - use flexible regex to capture all characters including lowercase
-        cipher = 'Unknown'
-        cipher_match = re.search(r'Cipher\s+is\s+(.+?)(?:\n|$)', output)
-        if not cipher_match:
-            cipher_match = re.search(r'Cipher\s+:\s+(.+?)(?:\n|$)', output)
-        if cipher_match:
-            cipher = cipher_match.group(1).strip()
-        
-        # Map what we requested to expected protocol
-        expected_map = {
-            '-tls1': 'TLSv1',
-            '-tls1_1': 'TLSv1.1',
-            '-tls1_2': 'TLSv1.2',
-            '-tls1_3': 'TLSv1.3'
-        }
-        expected_protocol = expected_map.get(tls_flag, tls_name)
-        
-        # CRITICAL: Check if connection was ever established
-        # "CONNECTED" in output means openssl successfully connected to the server
-        # If connection never established, this is a network issue (WiFi off, DNS fail, etc)
-        connection_established = 'CONNECTED' in output
-        
-        # NETWORK ERRORS: Check FIRST before server errors
-        # These indicate the problem is network connectivity, not server configuration
-        
-        # If we never connected and got a non-zero exit, it's a network problem
-        if not connection_established and result.returncode != 0:
-            # Try to provide specific diagnostic based on error message
-            
-            # Connection refused - server not listening on that port
-            if 'Connection refused' in output or 'connect:errno' in output:
-                return {'status': 'ERROR', 'error': f'Connection refused by {hostname}:{port}. Is the server running on this port?'}
-            
-            # DNS resolution failed
-            if 'getaddrinfo failed' in output or 'nodename nor servname provided' in output or 'Name or service not known' in output:
-                return {'status': 'ERROR', 'error': f'DNS resolution failed for "{hostname}". Check hostname spelling and DNS availability.'}
-            
-            # Network unreachable (no route to host - indicates network/WiFi issue)
-            if 'Network is unreachable' in output or 'No route to host' in output or 'Unreachable' in output:
-                return {'status': 'ERROR', 'error': f'Network unreachable to {hostname}:{port}. Check network connectivity and WiFi status.'}
-            
-            # Host is down/unreachable (ICMP errors)
-            if 'Host is down' in output or 'host unreachable' in output.lower():
-                return {'status': 'ERROR', 'error': f'Host unreachable: {hostname}:{port}. Target server is offline or network path unavailable.'}
-            
-            # Generic network connectivity error
-            return {'status': 'ERROR', 'error': f'Unable to connect to {hostname}:{port}. Check network connectivity, WiFi status, and firewall rules.'}
-        
-        
-        # CLIENT UNSUPPORTED: OpenSSL doesn't support this protocol at all
-        # Indicator: protocol-related error + no negotiated protocol
-        # OpenSSL 1.x: "no protocols available"
-        # OpenSSL 3.x: "unsupported protocol", "wrong version number", etc.
-        error_indicators = ['no protocols available', 'unsupported protocol', 'wrong version number']
-        if any(err in output.lower() for err in error_indicators) and not negotiated_protocol:
-            return {'status': 'CLIENT_UNSUPPORTED', 'reason': 'OpenSSL does not support this protocol'}
-        
-        # SERVER UNSUPPORTED: Multiple indicators
-        # 1. Protocol downgrade detected (only for legacy TLS versions)
-        # If we requested TLS 1.0 but got TLS 1.2, server doesn't support TLS 1.0
-        # BUT: If we request TLS 1.2 and get TLS 1.3, server DOES support 1.2 (just prefers 1.3)
-        if negotiated_protocol and negotiated_protocol != expected_protocol:
-            # Only treat as unsupported for legacy versions requesting upgrade
-            if tls_flag in ['-tls1', '-tls1_1']:
-                return {'status': 'SERVER_UNSUPPORTED', 'reason': 'Server negotiated different protocol (downgrade)'}
-            # For TLS 1.2+, upgrade is normal behavior (server preference), not unsupported
-        
-        # 2. Non-zero exit code with no valid cipher AND protocol didn't negotiate
-        # Only if both: exit failed AND no protocol negotiated = truly rejected
-        if result.returncode != 0 and cipher in ['0000', '(NONE)', 'Unknown'] and not negotiated_protocol:
-            return {'status': 'SERVER_UNSUPPORTED', 'reason': 'Server rejected this protocol'}
-        
-        # SUPPORTED: Valid cipher negotiated with correct protocol (reliable indicator)
-        # A valid cipher means the handshake succeeded with the requested protocol
-        if cipher not in ['0000', '(NONE)', 'Unknown'] and negotiated_protocol:
-            protocol = negotiated_protocol
-            # Validate cipher is appropriate for the protocol
-            # TLS 1.3 ciphers start with "TLS_", older versions use traditional suite names
-            is_tls13_cipher = 'TLS_' in cipher
-            protocol_is_tls13 = 'TLSv1.3' in protocol or 'TLS 1.3' in protocol
-            
-            # Both must agree on TLS 1.3 or both not (prevents protocol/cipher mismatch)
-            if is_tls13_cipher == protocol_is_tls13:
-                # Find all supported ciphers for this protocol
-                all_ciphers = find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers,
-                                                     proxy=proxy, socks_proxy=socks_proxy)
-                # Include the already-negotiated cipher if not in list
-                if cipher not in all_ciphers:
-                    all_ciphers.insert(0, cipher)
-                
-                return {
-                    'status': 'SUPPORTED',
-                    'protocol': protocol,
-                    'ciphers': all_ciphers,
-                    'cipher': cipher  # Keep for backward compatibility
-                }
-        
-        # SERVER UNSUPPORTED: Cipher is 0000/(NONE) with negotiated protocol
-        # Server sent certificate but rejected the handshake
-        if cipher in ['0000', '(NONE)'] and negotiated_protocol:
-            return {'status': 'SERVER_UNSUPPORTED', 'reason': 'Server rejected this protocol'}
-        
-        # Additional error cases not caught above
-        if 'timeout' in output.lower() or 'timed out' in output.lower():
-            return {'status': 'ERROR', 'error': f'Connection timeout to {hostname}:{port}. Server not responding. Check network connectivity and firewall rules.'}
-        
-        if 'Permission denied' in output:
-            return {'status': 'ERROR', 'error': f'Permission denied connecting to {hostname}:{port}. May require elevated privileges or port access.'}
-        
-        if 'Certificate_required' in output or 'certificate required' in output.lower():
-            return {'status': 'ERROR', 'error': 'Server requires client certificate authentication. Not currently supported.'}
-        
-        # Generic SSL/TLS error
-        error_match = re.search(r'error:([0-9A-F]+)', output)
-        if error_match:
-            error_code = error_match.group(1)
-            error_desc = {
-                '14094410': 'SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE - Server cannot negotiate a protocol/cipher',
-                '1416D086': 'SSL_R_TLSV1_ALERT_INTERNAL_ERROR - Server internal error',
-                '14077410': 'SSL_R_SSL_HANDSHAKE_FAILURE - General handshake failure',
-            }.get(error_code, f'OpenSSL error {error_code}')
-            return {'status': 'ERROR', 'error': f'SSL/TLS Error: {error_desc}'}
-        
-        return {'status': 'ERROR', 'error': f'Connection to {hostname}:{port} failed. Check server accessibility, port number, and proxy configuration.'}
-
-    
-    except subprocess.TimeoutExpired:
-        return {'status': 'ERROR', 'error': f'Connection timeout to {hostname}:{port}. Server not responding within 10 seconds. Try with a longer timeout or check network connectivity.'}
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     except FileNotFoundError:
-        exe_name = 'Tongsuo' if 'tongsuo' in OPENSSL_EXECUTABLE else 'OpenSSL'
-        return {'status': 'ERROR', 'error': f'{exe_name} executable not found. Install {exe_name} and ensure it\'s in your PATH.'}
-    except Exception as e:
-        return {'status': 'ERROR', 'error': f'Unexpected error: {str(e)[:100]}'}
+        return None, {'_error': 'nmap executable not found. Install nmap: https://nmap.org/download.html'}
+    except subprocess.TimeoutExpired:
+        return None, {'_error': f'nmap scan timed out for {hostname}:{port}'}
+
+    if not result.stdout.strip():
+        msg = result.stderr.strip() or f'no output for {hostname}:{port}'
+        return None, {'_error': f'nmap produced no output: {msg}'}
+
+    return result.stdout, None
 
 
-def check_tls_support(hostname, port):
-    """Check which TLS versions are supported."""
-    print(f"\n{'='*70}")
-    print(f"SSL/TLS Scanner Results for: {hostname}:{port}")
-    print(f"{'='*70}\n")
-    
+def _parse_port_state(port_elem, hostname, port):
+    """Return an error dict if the port is closed/filtered, else None."""
+    state_elem = port_elem.find('state')
+    if state_elem is None:
+        return None
+    state = state_elem.get('state', '')
+    if state == 'closed':
+        return {'_error': f'Port {port} is closed on {hostname}'}
+    if state == 'filtered':
+        return {'_error': f'Port {port} is filtered on {hostname} — firewall may be blocking the probe'}
+    return None
+
+
+def _extract_ciphers_from_proto_table(proto_table):
+    """Parse one <table key="TLSv1.x"> element and return list of cipher names."""
+    ciphers = []
+    ciphers_table = proto_table.find('table[@key="ciphers"]')
+    if ciphers_table is None:
+        return ciphers
+    for entry in ciphers_table.findall('table'):
+        name_elem = entry.find('elem[@key="name"]')
+        if name_elem is not None and name_elem.text:
+            ciphers.append(name_elem.text.strip())
+    return ciphers
+
+
+def _parse_nmap_xml(xml_text, hostname, port):
+    """Parse nmap XML output and return per-protocol results dict."""
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        return {'_error': f'Failed to parse nmap XML output: {e}'}
+
+    host = root.find('host')
+    if host is None:
+        return {'_error': f'Host {hostname} not found or not reachable'}
+
+    port_elem = host.find(f'.//port[@portid="{port}"]')
+    if port_elem is None:
+        return {'_error': f'Port {port} not found in nmap scan results'}
+
+    port_error = _parse_port_state(port_elem, hostname, port)
+    if port_error:
+        return port_error
+
+    script = port_elem.find('.//script[@id="ssl-enum-ciphers"]')
+    if script is None:
+        return {'_no_tls': True}
+
     results = {}
-    
-    for tls_name, tls_flag in TLS_VERSIONS.items():
-        result = check_tls_version(hostname, port, tls_name, tls_flag)
-        results[tls_name] = result
-    
-    # Display results
-    for tls_name in TLS_VERSIONS.keys():
-        result = results.get(tls_name, {})
-        status = result.get('status', 'UNKNOWN')
-        
-        if status == 'SUPPORTED':
-            print(f"✓ {tls_name:<15} - SUPPORTED")
-            print(f"  Protocol Version: {result.get('protocol', 'Unknown')}")
-            ciphers = result.get('ciphers', [result.get('cipher', 'Unknown')])
-            print(f"  Ciphers ({len(ciphers)}):")
-            for cipher in ciphers:
-                print(f"    • {cipher}")
-        elif status == 'SERVER_UNSUPPORTED':
-            print(f"✗ {tls_name:<15} - NOT SUPPORTED (Server)")
-            print(f"  Server does not support this protocol version")
-        elif status == 'CLIENT_UNSUPPORTED':
-            print(f"⊘ {tls_name:<15} - NOT SUPPORTED (Client)")
-            print(f"  {result.get('reason', 'OpenSSL does not support this protocol')}")
-            print(f"  Note: Install legacy OpenSSL to test this version")
-        else:
-            print(f"⚠ {tls_name:<15} - ERROR: {result.get('error', 'Unknown error')}")
-        print()
-    
+    for proto_table in script.findall('table'):
+        proto_name = proto_table.get('key', '')
+        if not proto_name.startswith('TLS'):
+            continue
+        ciphers = _extract_ciphers_from_proto_table(proto_table)
+        if ciphers:
+            results[proto_name] = {
+                'status': 'SUPPORTED',
+                'protocol': proto_name,
+                'ciphers': ciphers,
+                'cipher': ciphers[0],
+            }
+
     return results
 
 
+def scan_with_nmap(hostname, port, socks_proxy=None, proxy=None):
+    """Run nmap ssl-enum-ciphers and return per-protocol results dict."""
+    cmd = _build_nmap_cmd(hostname, port, socks_proxy, proxy)
+    stdout, error = _run_nmap(cmd, hostname, port)
+    if error:
+        return error
+    return _parse_nmap_xml(stdout, hostname, port)
+
+
+def build_full_results(nmap_results):
+    """Expand nmap results to cover all TLS versions, marking absent ones as SERVER_UNSUPPORTED."""
+    if '_error' in nmap_results:
+        return {v: {'status': 'ERROR', 'error': nmap_results['_error']} for v in TLS_VERSIONS}
+
+    if '_no_tls' in nmap_results:
+        return {v: {'status': 'ERROR', 'error': 'No TLS detected on this port'} for v in TLS_VERSIONS}
+
+    return {
+        v: nmap_results.get(v, {'status': 'SERVER_UNSUPPORTED', 'reason': 'Server does not support this protocol version'})
+        for v in TLS_VERSIONS
+    }
+
+
+# ---------------------------------------------------------------------------
+# JSON output
+# ---------------------------------------------------------------------------
+
+def _cipher_to_json(cipher, protocol):
+    """Build the JSON dict for one cipher entry."""
+    rating, _, fmt, kex, sig, std = check_cipher_compliance(cipher, protocol)
+    info = {'name': cipher, 'format': fmt, 'compliance': rating, 'standard': std}
+    if kex:
+        info['key_exchange'] = kex
+    if sig:
+        info['signature_algorithm'] = sig
+    return info
+
+
 def output_json_report(hostname, port, results):
-    """Output results in JSON format."""
+    """Return the full scan report as a JSON-serialisable dict."""
     report = {
         'scan_timestamp': datetime.now().isoformat(),
-        'target': {
-            'hostname': hostname,
-            'port': port
-        },
-        'protocols': {}
+        'target': {'hostname': hostname, 'port': port},
+        'protocols': {},
     }
-    
-    for tls_name, result in results.items():
+
+    for tls_name in TLS_VERSIONS:
+        result = results.get(tls_name, {})
         status = result.get('status', 'UNKNOWN')
-        
-        # Check protocol compliance
         protocol_compliance = APPROVED_PROTOCOLS.get(tls_name, 'NOT_APPROVED')
-        
-        protocol_info = {
-            'status': status,
-            'compliance': protocol_compliance,
-        }
-        
+
+        protocol_info = {'status': status, 'compliance': protocol_compliance}
+
         if status == 'SUPPORTED':
-            protocol_info.update({
-                'protocol_version': result.get('protocol', 'Unknown'),
-                'ciphers': []
-            })
-            # Add compliance info for each cipher
-            for cipher in result.get('ciphers', []):
-                compliance_rating, matched_cipher, cipher_format, key_exchange, signature_algorithm, compliance_standard = check_cipher_compliance(cipher, result.get('protocol', ''))
-                cipher_info = {
-                    'name': cipher,
-                    'format': cipher_format,
-                    'compliance': compliance_rating,
-                    'standard': compliance_standard
-                }
-                if key_exchange:
-                    cipher_info['key_exchange'] = key_exchange
-                if signature_algorithm:
-                    cipher_info['signature_algorithm'] = signature_algorithm
-                protocol_info['ciphers'].append(cipher_info)
+            proto = result.get('protocol', 'Unknown')
+            protocol_info['protocol_version'] = proto
+            protocol_info['ciphers'] = [_cipher_to_json(c, proto) for c in result.get('ciphers', [])]
         elif status == 'SERVER_UNSUPPORTED':
             protocol_info['reason'] = 'Server does not support this protocol version'
-        elif status == 'CLIENT_UNSUPPORTED':
-            protocol_info['reason'] = result.get('reason', 'OpenSSL does not support this protocol')
         else:
             protocol_info['error'] = result.get('error', 'Unknown error')
-        
+
         report['protocols'][tls_name] = protocol_info
-    
+
     return report
 
 
+# ---------------------------------------------------------------------------
+# Text output
+# ---------------------------------------------------------------------------
+
+def _protocol_icon(protocol_compliance):
+    if protocol_compliance == 'RECOMMENDED':
+        return '✅'
+    if protocol_compliance == 'SECURE':
+        return '⚠️ '
+    return '❌'
+
+
+def _cipher_icon(rating):
+    if rating in ('PQC_RECOMMENDED', 'RECOMMENDED', 'REQUIRED'):
+        return '✅'
+    if rating == 'SECURE':
+        return '⚠️ '
+    return '❓'
+
+
+def _print_cipher_line(cipher, protocol):
+    rating, _, fmt, kex, sig, std = check_cipher_compliance(cipher, protocol)
+    print(f"    {_cipher_icon(rating)} {cipher}")
+    if std and std != 'GLOBAL':
+        print(f"       Standard: {std}")
+    if fmt and fmt not in ('N/A', 'Not in approved cipher list'):
+        print(f"       Format: {fmt}")
+    if kex:
+        print(f"       Key Exchange: {kex}")
+    if sig:
+        print(f"       Signature: {sig}")
+
+
+def _print_protocol_block(tls_name, result):
+    status = result.get('status', 'UNKNOWN')
+    protocol_compliance = APPROVED_PROTOCOLS.get(tls_name, 'NOT_APPROVED')
+
+    if status == 'SUPPORTED':
+        icon = _protocol_icon(protocol_compliance)
+        print(f"{icon} {tls_name:<15} - SUPPORTED")
+        if protocol_compliance != 'RECOMMENDED':
+            print(f"   ℹ️  Protocol compliance: {protocol_compliance}")
+        proto = result.get('protocol', 'Unknown')
+        print(f"  Protocol Version: {proto}")
+        ciphers = result.get('ciphers', [])
+        print(f"  Ciphers ({len(ciphers)}):")
+        for cipher in ciphers:
+            _print_cipher_line(cipher, proto)
+    elif status == 'SERVER_UNSUPPORTED':
+        print(f"✗ {tls_name:<15} - NOT SUPPORTED (Server)")
+        print("  Server does not support this protocol version")
+    else:
+        print(f"⚠ {tls_name:<15} - ERROR: {result.get('error', 'Unknown error')}")
+
+
+def _print_text_results(hostname, port, results):
+    print(f"\n{'='*70}")
+    print(f"SSL/TLS Scanner Results for: {hostname}:{port}")
+    print(f"{'='*70}\n")
+    for tls_name in TLS_VERSIONS:
+        _print_protocol_block(tls_name, results.get(tls_name, {}))
+        print()
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
 def main():
     parser = argparse.ArgumentParser(
-        description='TLS Version and Cipher Scanner - Check which TLS versions and ciphers are supported by a server',
+        description='TLS Version and Cipher Scanner - uses nmap ssl-enum-ciphers for fast enumeration',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
@@ -593,103 +340,39 @@ Examples:
   %(prog)s --url example.com --json > report.json
         '''
     )
-    
-    parser.add_argument('--url', '-u', 
-                        required=True,
+
+    parser.add_argument('--url', '-u', required=True,
                         help='URL or FQDN to scan (with or without http/https scheme)')
-    parser.add_argument('--port', '-p',
-                        type=int,
-                        default=None,
+    parser.add_argument('--port', '-p', type=int, default=None,
                         help='Port number (default: 443)')
-    parser.add_argument('--json', '-j',
-                        action='store_true',
+    parser.add_argument('--json', '-j', action='store_true',
                         help='Output results in JSON format')
-    parser.add_argument('--ciphers', '-c',
-                        type=int,
-                        default=10,
-                        help='Max ciphers to enumerate per protocol (default: 10, use 0 for unlimited). Warning: unlimited enumeration is slow and IDS-detectable')
     parser.add_argument('--proxy',
-                        help='HTTP/HTTPS proxy (e.g., http://proxy.example.com:8080)')
+                        help='HTTP/HTTPS proxy — NOTE: not supported by nmap; use --socks-proxy instead')
     parser.add_argument('--socks-proxy',
-                        help='SOCKS proxy (e.g., socks5://proxy.example.com:1080)')
-    parser.add_argument('--compliance-standard',
-                        default='GLOBAL',
+                        help='SOCKS proxy passed to nmap --proxies (e.g., socks5://proxy.example.com:1080)')
+    parser.add_argument('--compliance-standard', default='GLOBAL',
                         help='Compliance standard to enforce (default: GLOBAL, options: GLOBAL, CHINA_GB/T_38636, etc.)')
-    parser.add_argument('--tongsuo-path',
-                        help='Custom path to tongsuo/openssl binary (e.g., /opt/tongsuo/bin/openssl or /custom/path/tongsuo). Only used with --compliance-standard CHINA_GB/T_38636')
-    
+
     args = parser.parse_args()
-    
-    # Load approved ciphers from CSV, filtered by compliance standard
-    if not load_approved_ciphers(compliance_standard=args.compliance_standard, tongsuo_path=args.tongsuo_path):
+
+    if not load_approved_ciphers(compliance_standard=args.compliance_standard):
         print("Error: Could not load approved ciphers configuration", file=sys.stderr)
         sys.exit(1)
-    
+
     try:
         hostname, default_port = extract_hostname_port(args.url)
-        
-        # Use provided port, otherwise use extracted port, otherwise default to 443
         port = args.port if args.port is not None else default_port
-        
-        # Convert cipher limit: 0 = unlimited (None), otherwise use specified value
-        max_ciphers = None if args.ciphers == 0 else args.ciphers
-        
-        if max_ciphers is None:
-            print("⚠️  WARNING: Unlimited cipher enumeration enabled - this will be SLOW and IDS-DETECTABLE", file=sys.stderr)
-        
-        results = {}
-        
-        for tls_name, tls_flag in TLS_VERSIONS.items():
-            # Pass max_ciphers to check_tls_version for cipher enumeration
-            result = check_tls_version(hostname, port, tls_name, tls_flag, max_ciphers, 
-                                     proxy=args.proxy, socks_proxy=args.socks_proxy)
-            results[tls_name] = result
-        
+
+        results = build_full_results(
+            scan_with_nmap(hostname, port, socks_proxy=args.socks_proxy, proxy=args.proxy)
+        )
+
         if args.json:
-            report = output_json_report(hostname, port, results)
-            print(json.dumps(report, indent=2))
+            print(json.dumps(output_json_report(hostname, port, results), indent=2))
         else:
-            # Text format - display results
-            print(f"\n{'='*70}")
-            print(f"SSL/TLS Scanner Results for: {hostname}:{port}")
-            print(f"{'='*70}\n")
-            
-            for tls_name in TLS_VERSIONS.keys():
-                result = results.get(tls_name, {})
-                status = result.get('status', 'UNKNOWN')
-                protocol_compliance = APPROVED_PROTOCOLS.get(tls_name, 'NOT_APPROVED')
-                
-                if status == 'SUPPORTED':
-                    compliance_icon = '✅' if protocol_compliance == 'RECOMMENDED' else '⚠️ ' if protocol_compliance == 'SECURE' else '❌'
-                    print(f"{compliance_icon} {tls_name:<15} - SUPPORTED")
-                    if protocol_compliance != 'RECOMMENDED':
-                        print(f"   ℹ️  Protocol compliance: {protocol_compliance}")
-                    print(f"  Protocol Version: {result.get('protocol', 'Unknown')}")
-                    ciphers = result.get('ciphers', [result.get('cipher', 'Unknown')])
-                    print(f"  Ciphers ({len(ciphers)}):")
-                    for cipher in ciphers:
-                        compliance_rating, cipher_name, cipher_format, key_exchange, signature_algorithm, compliance_standard = check_cipher_compliance(cipher, result.get('protocol', ''))
-                        status_icon = '✅' if compliance_rating in ('PQC_RECOMMENDED', 'RECOMMENDED', 'REQUIRED') else '⚠️ ' if compliance_rating == 'SECURE' else '❓'
-                        print(f"    {status_icon} {cipher}")
-                        if compliance_standard and compliance_standard != 'GLOBAL':
-                            print(f"       Standard: {compliance_standard}")
-                        if cipher_format and cipher_format not in ['N/A', 'Not in approved cipher list']:
-                            print(f"       Format: {cipher_format}")
-                        if key_exchange:
-                            print(f"       Key Exchange: {key_exchange}")
-                        if signature_algorithm:
-                            print(f"       Signature: {signature_algorithm}")
-                elif status == 'SERVER_UNSUPPORTED':
-                    print(f"✗ {tls_name:<15} - NOT SUPPORTED (Server)")
-                    print(f"  Server does not support this protocol version")
-                elif status == 'CLIENT_UNSUPPORTED':
-                    print(f"⊘ {tls_name:<15} - NOT SUPPORTED (Client)")
-                    print(f"  {result.get('reason', 'OpenSSL does not support this protocol')}")
-                    print(f"  Note: Install legacy OpenSSL to test this version")
-                else:
-                    print(f"⚠ {tls_name:<15} - ERROR: {result.get('error', 'Unknown error')}")
-                print()
-    
+            _print_text_results(hostname, port, results)
+
     except KeyboardInterrupt:
         print("\n\nScan interrupted by user.")
         sys.exit(0)
