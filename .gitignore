@@ -48,3 +48,6 @@ htmlcov/
 
 # Logs
 *.log
+
+# Scan reports (JSON) — committed HTML reports only
+reports/*.json
