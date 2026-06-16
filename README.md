@@ -357,7 +357,10 @@ Your OpenSSL version does not support that protocol. Install a more recent versi
 
 - **nmap backend**: runs `nmap --script ssl-enum-ciphers` and parses the XML output; enumerates all ciphers in one TLS session per protocol version
 - **openssl backend**: calls `openssl s_client` once per cipher; required for Tongsuo/SM cipher testing
-- Cipher names reported in OpenSSL shorthand are normalised to IANA format using the `iana_name` column in `approved_ciphers.csv`
+- **IANA normalisation — three-layer lookup** (applied to every cipher name before compliance check or output):
+  1. `approved_ciphers.csv` `iana_name` column — highest priority; maps approved OpenSSL-format ciphers to their IANA names
+  2. Built-in nmap TLS 1.3 alias table — corrects nmap's non-standard `TLS_AKE_WITH_*` names to proper `TLS_AES_*` IANA names
+  3. Built-in comprehensive OpenSSL→IANA table — covers ~110 common ciphers (including NOT_APPROVED ones not in the CSV) so both backends always produce the same IANA name for comparison
 - SNI support for modern web servers
 - Handles IPv4 and IPv6 (via hostname resolution)
 
