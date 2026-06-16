@@ -1150,31 +1150,26 @@ Examples:
             results, error = _scan_target(hostname, port, backend, args.proxy)
             target_scans.append((hostname, port, results, error))
 
-        if args.url:
-            # Single-target mode — keep the original flat report format
-            hostname, port, results, error = target_scans[0]
-            if error is not None:
-                print(f"Scan error: {error}", file=sys.stderr)
-                sys.exit(1)
-            if args.json:
-                print(json.dumps(output_json_report(hostname, port, results), indent=2))
-            else:
-                _print_text_results(hostname, port, results)
-            overall_status, _ = compute_overall_compliance(results)
-            if overall_status == 'NON_COMPLIANT':
-                sys.exit(2)
+        # Output — same schema regardless of --url or --url-file
+        if args.json:
+            print(json.dumps(output_multi_json_report(target_scans), indent=2))
         else:
-            # Multi-target mode — single aggregated report
-            if args.json:
-                print(json.dumps(output_multi_json_report(target_scans), indent=2))
+            if len(target_scans) == 1:
+                hostname, port, results, error = target_scans[0]
+                if error is not None:
+                    print(f"Scan error: {error}", file=sys.stderr)
+                    sys.exit(1)
+                _print_text_results(hostname, port, results)
             else:
                 _print_multi_text_results(target_scans)
-            n_nc = sum(1 for _, _, r, e in target_scans if e is None and compute_overall_compliance(r)[0] == 'NON_COMPLIANT')
-            n_err = sum(1 for *_, e in target_scans if e is not None)
-            if n_nc > 0:
-                sys.exit(2)
-            elif n_err > 0:
-                sys.exit(1)
+
+        # Exit codes — aggregate across all targets
+        n_nc = sum(1 for _, _, r, e in target_scans if e is None and compute_overall_compliance(r)[0] == 'NON_COMPLIANT')
+        n_err = sum(1 for *_, e in target_scans if e is not None)
+        if n_nc > 0:
+            sys.exit(2)
+        elif n_err > 0:
+            sys.exit(1)
 
     except KeyboardInterrupt:
         print("\n\nScan interrupted by user.")

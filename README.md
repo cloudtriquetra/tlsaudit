@@ -159,7 +159,7 @@ Lines with `#` in the `cipher_name` column are treated as comments.
 ### Basic Usage
 
 ```bash
-# Scan a domain on default HTTPS port (443)
+# Scan a single domain (default port 443)
 python3 ssl_checker.py --url google.com
 
 # Scan with explicit port
@@ -167,6 +167,17 @@ python3 ssl_checker.py --url example.com --port 8443
 
 # Scan with full URL
 python3 ssl_checker.py --url https://api.example.com:8443
+
+# Scan multiple targets from a file (one URL or host:port per line)
+python3 ssl_checker.py --url-file targets.txt
+```
+
+`targets.txt` format — one entry per line, `#` for comments:
+```
+# production services
+api.example.com:443
+auth.example.com:8443
+https://internal.corp.com:4443
 ```
 
 ### Output Formats
@@ -175,11 +186,9 @@ python3 ssl_checker.py --url https://api.example.com:8443
 # Text output (default)
 python3 ssl_checker.py --url example.com
 
-# JSON output
+# JSON report — same schema for single target or batch
 python3 ssl_checker.py --url example.com --json
-
-# Save JSON report to file
-python3 ssl_checker.py --url example.com --json > report.json
+python3 ssl_checker.py --url-file targets.txt --json > report.json
 ```
 
 ### Backend Selection
@@ -281,63 +290,87 @@ TLS Audit Results for: example.com:443
 
 ### JSON Format
 
-The JSON report always uses IANA cipher names. When the backend (nmap or OpenSSL) reports a cipher in OpenSSL shorthand, the original name is preserved in the `openssl_name` field alongside the normalised `iana_name`.
+The JSON report uses the same schema whether you scan one target (`--url`) or many (`--url-file`). All cipher names are reported in IANA format; when the backend reports OpenSSL shorthand the original name is preserved in `openssl_name`.
 
 ```json
 {
   "scan_timestamp": "2026-02-11T10:30:45.123456",
-  "target": {
-    "hostname": "example.com",
-    "port": 443
+  "overall_compliance": "NON_COMPLIANT",
+  "findings": [
+    "api.example.com:8443 — TLSv1.0 is supported (deprecated protocol)",
+    "api.example.com:8443 — NOT_APPROVED cipher on TLSv1.2: TLS_RSA_WITH_AES_128_CBC_SHA"
+  ],
+  "summary": {
+    "targets_total": 2,
+    "targets_compliant": 1,
+    "targets_non_compliant": 1,
+    "targets_error": 0
   },
-  "protocols": {
-    "TLSv1.3": {
-      "status": "SUPPORTED",
-      "compliance": "RECOMMENDED",
-      "protocol_version": "TLSv1.3",
-      "cipher_count": 3,
-      "ciphers": [
-        {
-          "iana_name": "TLS_AES_256_GCM_SHA384",
+  "targets": [
+    {
+      "hostname": "example.com",
+      "port": 443,
+      "overall_compliance": "COMPLIANT",
+      "findings": [],
+      "protocols": {
+        "TLSv1.3": {
+          "status": "SUPPORTED",
           "compliance": "RECOMMENDED",
-          "standard": "GLOBAL"
+          "protocol_version": "TLSv1.3",
+          "cipher_count": 3,
+          "ciphers": [
+            { "iana_name": "TLS_AES_256_GCM_SHA384", "compliance": "RECOMMENDED", "standard": "GLOBAL" },
+            { "iana_name": "TLS_CHACHA20_POLY1305_SHA256", "compliance": "RECOMMENDED", "standard": "GLOBAL" }
+          ]
         },
-        {
-          "iana_name": "TLS_CHACHA20_POLY1305_SHA256",
-          "compliance": "RECOMMENDED",
-          "standard": "GLOBAL"
-        }
-      ]
-    },
-    "TLSv1.2": {
-      "status": "SUPPORTED",
-      "compliance": "SECURE",
-      "protocol_version": "TLSv1.2",
-      "cipher_count": 2,
-      "ciphers": [
-        {
-          "iana_name": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-          "openssl_name": "ECDHE-RSA-AES256-GCM-SHA384",
+        "TLSv1.2": {
+          "status": "SUPPORTED",
           "compliance": "SECURE",
-          "standard": "GLOBAL"
-        }
-      ]
+          "protocol_version": "TLSv1.2",
+          "cipher_count": 1,
+          "ciphers": [
+            {
+              "iana_name": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+              "openssl_name": "ECDHE-RSA-AES256-GCM-SHA384",
+              "compliance": "SECURE",
+              "standard": "GLOBAL"
+            }
+          ]
+        },
+        "TLSv1.1": { "status": "SERVER_UNSUPPORTED" },
+        "TLSv1.0": { "status": "SERVER_UNSUPPORTED" }
+      }
     },
-    "TLSv1.1": {
-      "status": "SERVER_UNSUPPORTED"
-    },
-    "TLSv1.0": {
-      "status": "SERVER_UNSUPPORTED"
+    {
+      "hostname": "api.example.com",
+      "port": 8443,
+      "overall_compliance": "NON_COMPLIANT",
+      "findings": [
+        "TLSv1.0 is supported (deprecated protocol)",
+        "NOT_APPROVED cipher on TLSv1.2: TLS_RSA_WITH_AES_128_CBC_SHA"
+      ],
+      "protocols": { "...": "..." }
     }
-  }
+  ]
 }
 ```
 
-**JSON cipher fields:**
+**Top-level fields:**
+- `overall_compliance` — `COMPLIANT`, `NON_COMPLIANT`, or `ERROR` across all targets
+- `findings` — all violations from all targets, each prefixed with `hostname:port —`
+- `summary` — count of targets by compliance state
+- `targets` — per-target results (one entry even for a single `--url` scan)
+
+**Per-target fields (`targets[i]`):**
+- `overall_compliance` — compliance status for this target
+- `findings` — violations for this target only (no host prefix)
+- `protocols` — per-protocol scan results
+
+**Cipher fields (`protocols.TLSvX.Y.ciphers[i]`):**
 - `iana_name` — official IANA cipher name (always present)
-- `openssl_name` — OpenSSL shorthand as reported by the backend (only present when different from `iana_name`)
-- `compliance` — compliance rating from `approved_ciphers.csv`
-- `standard` — compliance standard (`GLOBAL`, `CHINA_GB/T_38636`, etc.)
+- `openssl_name` — OpenSSL shorthand (only present when different from `iana_name`)
+- `compliance` — rating from `approved_ciphers.csv`
+- `standard` — `GLOBAL`, `CHINA_GB/T_38636`, etc.
 - `key_exchange` — key exchange method (when documented in the CSV)
 - `signature_algorithm` — signature algorithm (when documented in the CSV)
 
@@ -360,20 +393,7 @@ python3 ssl_checker.py --url api.example.com --json > report.json
 python3 ssl_checker.py --url api.example.com && echo "PASS" || echo "FAIL"
 ```
 
-The JSON report includes `overall_compliance` and `findings` at the top level for easy parsing:
-
-```json
-{
-  "overall_compliance": "NON_COMPLIANT",
-  "findings": [
-    "TLSv1.0 is supported (deprecated protocol)",
-    "NOT_APPROVED cipher on TLSv1.2: TLS_RSA_WITH_AES_128_CBC_SHA"
-  ],
-  ...
-}
-```
-
-When the scan fails entirely (exit 1), no JSON is written — the error is printed to stderr:
+The top-level `overall_compliance` and `findings` fields are always present for easy pipeline parsing (see JSON Format section for the full schema). When the scan fails entirely (exit 1), no JSON is written — the error is printed to stderr:
 
 ```
 Scan error: DNS resolution failed for "bad-host.invalid". Check hostname spelling and DNS availability.
