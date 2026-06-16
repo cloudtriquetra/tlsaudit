@@ -614,12 +614,19 @@ def build_full_results(nmap_results):
 # ---------------------------------------------------------------------------
 
 def normalise_results(results):
-    """Return a copy of results with all cipher names normalised to IANA format."""
+    """Return a copy of results with cipher names normalised to IANA format.
+
+    Each cipher is stored as a dict {'iana': <iana_name>, 'original': <reported_name>}.
+    When the backend already reported an IANA name, both fields are identical.
+    """
     normalised = {}
     for tls_name, result in results.items():
         if result.get('status') == 'SUPPORTED':
             new_result = dict(result)
-            new_result['ciphers'] = [normalise_to_iana(c) for c in result.get('ciphers', [])]
+            new_result['ciphers'] = [
+                {'iana': normalise_to_iana(c), 'original': c}
+                for c in result.get('ciphers', [])
+            ]
             if 'cipher' in result:
                 new_result['cipher'] = normalise_to_iana(result['cipher'])
             normalised[tls_name] = new_result
@@ -632,10 +639,23 @@ def normalise_results(results):
 # JSON output
 # ---------------------------------------------------------------------------
 
-def _cipher_to_json(cipher, protocol):
-    """Build the JSON dict for one cipher entry (cipher must be in IANA format)."""
-    rating, _, fmt, kex, sig, std = check_cipher_compliance(cipher, protocol)
-    info = {'name': cipher, 'format': fmt, 'compliance': rating, 'standard': std}
+def _cipher_to_json(cipher_entry, protocol):
+    """Build the JSON dict for one cipher entry.
+
+    cipher_entry is a dict {'iana': <iana_name>, 'original': <reported_name>}.
+    The IANA name is used for the compliance lookup. Both names appear in the
+    output so consumers can cross-reference regardless of which backend ran.
+    """
+    iana = cipher_entry['iana']
+    original = cipher_entry['original']
+    rating, _, _fmt, kex, sig, std = check_cipher_compliance(iana, protocol)
+    info = {
+        'iana_name': iana,
+        'compliance': rating,
+        'standard': std,
+    }
+    if original != iana:
+        info['openssl_name'] = original
     if kex:
         info['key_exchange'] = kex
     if sig:
@@ -665,6 +685,7 @@ def output_json_report(hostname, port, results):
             proto = result.get('protocol', 'Unknown')
             protocol_info['protocol_version'] = proto
             protocol_info['ciphers'] = [_cipher_to_json(c, proto) for c in result.get('ciphers', [])]
+            protocol_info['cipher_count'] = len(protocol_info['ciphers'])
         elif status == 'SERVER_UNSUPPORTED':
             protocol_info['reason'] = 'Server does not support this protocol version'
         else:
@@ -695,10 +716,13 @@ def _cipher_icon(rating):
     return '❓'
 
 
-def _print_cipher_line(cipher, protocol):
-    """Print one cipher line (cipher must be in IANA format)."""
-    rating, _, fmt, kex, sig, std = check_cipher_compliance(cipher, protocol)
-    print(f"    {_cipher_icon(rating)} {cipher}")
+def _print_cipher_line(cipher_entry, protocol):
+    """Print one cipher line. cipher_entry is {'iana': str, 'original': str}."""
+    iana = cipher_entry['iana']
+    original = cipher_entry['original']
+    rating, _, fmt, kex, sig, std = check_cipher_compliance(iana, protocol)
+    label = iana if iana == original else f"{iana}  (openssl: {original})"
+    print(f"    {_cipher_icon(rating)} {label}")
     if std and std != 'GLOBAL':
         print(f"       Standard: {std}")
     if fmt and fmt not in ('N/A', 'Not in approved cipher list'):
