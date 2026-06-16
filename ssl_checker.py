@@ -823,6 +823,42 @@ def _cipher_to_json(cipher_entry, protocol):
     return info
 
 
+def _scan_target(hostname, port, backend, proxy):
+    """Run a full TLS scan on one host:port.
+
+    Returns (normalised_results, None) on success, or (None, error_str) when the
+    host could not be reached at all (all protocols returned ERROR).
+    """
+    try:
+        if backend == 'nmap':
+            raw = build_full_results(scan_with_nmap(hostname, port, proxy=proxy))
+        else:
+            raw = scan_with_openssl(hostname, port, proxy=proxy)
+        results = normalise_results(raw)
+        statuses = [results.get(v, {}).get('status') for v in TLS_VERSIONS]
+        if not any(s == 'SUPPORTED' for s in statuses) and any(s == 'ERROR' for s in statuses):
+            first_err = next(
+                (results[v].get('error', 'Scan failed') for v in TLS_VERSIONS
+                 if results.get(v, {}).get('status') == 'ERROR'),
+                'Scan failed: could not connect to target',
+            )
+            return None, first_err
+        return results, None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def _parse_url_file(path):
+    """Read scan targets from a file. One URL / host[:port] per line. # = comment."""
+    targets = []
+    with open(path) as fh:
+        for line in fh:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                targets.append(line)
+    return targets
+
+
 def output_json_report(hostname, port, results):
     """Return the full scan report as a JSON-serialisable dict.
 
@@ -859,24 +895,76 @@ def output_json_report(hostname, port, results):
     return report
 
 
+def output_multi_json_report(target_scans, scan_timestamp=None):
+    """Build one JSON report for multiple targets.
+
+    target_scans: list of (hostname, port, results_or_None, error_or_None)
+    Returns a JSON-serialisable dict.
+    """
+    ts = scan_timestamp or datetime.now().isoformat()
+    target_reports = []
+    all_findings = []
+    n_compliant = n_non_compliant = n_error = 0
+
+    for hostname, port, results, error in target_scans:
+        tid = f"{hostname}:{port}"
+        if error is not None:
+            target_reports.append({
+                'hostname': hostname,
+                'port': port,
+                'overall_compliance': 'ERROR',
+                'error': error,
+                'findings': [],
+                'protocols': {},
+            })
+            all_findings.append(f"{tid} — Scan error: {error}")
+            n_error += 1
+        else:
+            single = output_json_report(hostname, port, results)
+            t_status = single['overall_compliance']
+            for f in single['findings']:
+                all_findings.append(f"{tid} — {f}")
+            target_reports.append({
+                'hostname': hostname,
+                'port': port,
+                'overall_compliance': t_status,
+                'findings': single['findings'],
+                'protocols': single['protocols'],
+            })
+            if t_status == 'COMPLIANT':
+                n_compliant += 1
+            else:
+                n_non_compliant += 1
+
+    if n_non_compliant > 0:
+        overall = 'NON_COMPLIANT'
+    elif n_error > 0:
+        overall = 'ERROR'
+    else:
+        overall = 'COMPLIANT'
+
+    return {
+        'scan_timestamp': ts,
+        'overall_compliance': overall,
+        'findings': all_findings,
+        'summary': {
+            'targets_total': len(target_scans),
+            'targets_compliant': n_compliant,
+            'targets_non_compliant': n_non_compliant,
+            'targets_error': n_error,
+        },
+        'targets': target_reports,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Text output
 # ---------------------------------------------------------------------------
 
-def _protocol_icon(protocol_compliance):
-    if protocol_compliance == 'RECOMMENDED':
-        return '✅'
-    if protocol_compliance == 'SECURE':
-        return '⚠️ '
-    return '❌'
-
-
-def _cipher_icon(rating):
-    if rating in ('PQC_RECOMMENDED', 'RECOMMENDED', 'REQUIRED'):
-        return '✅'
-    if rating == 'SECURE':
-        return '⚠️ '
-    return '❓'
+def _cipher_rating_tag(rating):
+    if rating == 'NOT_APPROVED':
+        return '[NOT_APPROVED]'
+    return f'[{rating}]'
 
 
 def _print_cipher_line(cipher_entry, protocol):
@@ -885,7 +973,7 @@ def _print_cipher_line(cipher_entry, protocol):
     original = cipher_entry['original']
     rating, _, fmt, kex, sig, std = check_cipher_compliance(iana, protocol)
     label = iana if iana == original else f"{iana}  (openssl: {original})"
-    print(f"    {_cipher_icon(rating)} {label}")
+    print(f"    {label}  {_cipher_rating_tag(rating)}")
     if std and std != 'GLOBAL':
         print(f"       Standard: {std}")
     if fmt and fmt not in ('N/A', 'Not in approved cipher list'):
@@ -901,10 +989,7 @@ def _print_protocol_block(tls_name, result):
     protocol_compliance = APPROVED_PROTOCOLS.get(tls_name, 'NOT_APPROVED')
 
     if status == 'SUPPORTED':
-        icon = _protocol_icon(protocol_compliance)
-        print(f"{icon} {tls_name:<15} - SUPPORTED")
-        if protocol_compliance != 'RECOMMENDED':
-            print(f"   ℹ️  Protocol compliance: {protocol_compliance}")
+        print(f"{tls_name:<15} - SUPPORTED  [{protocol_compliance}]")
         proto = result.get('protocol', 'Unknown')
         print(f"  Protocol Version: {proto}")
         ciphers = result.get('ciphers', [])
@@ -912,22 +997,20 @@ def _print_protocol_block(tls_name, result):
         for cipher in ciphers:
             _print_cipher_line(cipher, proto)
     elif status == 'SERVER_UNSUPPORTED':
-        print(f"✗ {tls_name:<15} - NOT SUPPORTED (Server)")
-        print("  Server does not support this protocol version")
+        print(f"{tls_name:<15} - NOT SUPPORTED (Server)")
     elif status == 'CLIENT_UNSUPPORTED':
-        print(f"⊘ {tls_name:<15} - NOT SUPPORTED (Client)")
+        print(f"{tls_name:<15} - NOT SUPPORTED (Client)")
         print(f"  {result.get('reason', 'OpenSSL does not support this protocol')}")
         print("  Note: Install legacy OpenSSL to test this version")
     else:
-        print(f"⚠ {tls_name:<15} - ERROR: {result.get('error', 'Unknown error')}")
+        print(f"{tls_name:<15} - ERROR: {result.get('error', 'Unknown error')}")
 
 
 def _print_text_results(hostname, port, results):
     overall_status, findings = compute_overall_compliance(results)
     print(f"\n{'='*70}")
     print(f"TLS Audit Results for: {hostname}:{port}")
-    icon = '✅ COMPLIANT' if overall_status == 'COMPLIANT' else '❌ NON_COMPLIANT'
-    print(f"Overall compliance: {icon}")
+    print(f"Overall compliance: {overall_status}")
     print(f"{'='*70}\n")
     for tls_name in TLS_VERSIONS:
         _print_protocol_block(tls_name, results.get(tls_name, {}))
@@ -936,8 +1019,55 @@ def _print_text_results(hostname, port, results):
         print(f"{'='*70}")
         print("Findings:")
         for f in findings:
-            print(f"  ✗ {f}")
+            print(f"  - {f}")
         print()
+
+
+def _print_multi_text_results(target_scans):
+    """Print text output for a multi-target scan then an aggregate summary."""
+    per_target_findings = []
+
+    for hostname, port, results, error in target_scans:
+        tid = f"{hostname}:{port}"
+        if error is not None:
+            print(f"\n{'='*70}")
+            print(f"TLS Audit Results for: {tid}")
+            print("Overall compliance: ERROR")
+            print(f"{'='*70}\n")
+            print(f"Scan error: {error}\n")
+            per_target_findings.append(f"{tid} — Scan error: {error}")
+        else:
+            _print_text_results(hostname, port, results)
+            _, findings = compute_overall_compliance(results)
+            for f in findings:
+                per_target_findings.append(f"{tid} — {f}")
+
+    n_total = len(target_scans)
+    n_err = sum(1 for *_, e in target_scans if e is not None)
+    n_nc = sum(
+        1 for _, _, r, e in target_scans
+        if e is None and compute_overall_compliance(r)[0] == 'NON_COMPLIANT'
+    )
+    n_c = n_total - n_err - n_nc
+
+    if n_nc > 0:
+        overall_label = 'NON_COMPLIANT'
+    elif n_err > 0:
+        overall_label = 'ERROR'
+    else:
+        overall_label = 'COMPLIANT'
+
+    print(f"\n{'='*70}")
+    print(f"SCAN SUMMARY  ({n_total} targets)")
+    print(f"  Compliant:     {n_c}")
+    print(f"  Non-compliant: {n_nc}")
+    print(f"  Scan errors:   {n_err}")
+    print(f"Overall compliance: {overall_label}")
+    if per_target_findings:
+        print("\nAll findings:")
+        for f in per_target_findings:
+            print(f"  - {f}")
+    print()
 
 
 # ---------------------------------------------------------------------------
@@ -955,13 +1085,17 @@ Examples:
   %(prog)s --url https://google.com:8443
   %(prog)s --url google.com --port 8443 --json
   %(prog)s --url example.com --json > report.json
+  %(prog)s --url-file targets.txt --json > report.json
         ''',
     )
 
-    parser.add_argument('--url', '-u', required=True,
-                        help='URL or FQDN to scan (with or without http/https scheme)')
+    target_group = parser.add_mutually_exclusive_group(required=True)
+    target_group.add_argument('--url', '-u',
+                              help='URL or FQDN to scan (with or without http/https scheme)')
+    target_group.add_argument('--url-file', '-f',
+                              help='File with one URL/host[:port] per line (# lines are comments)')
     parser.add_argument('--port', '-p', type=int, default=None,
-                        help='Port number (default: 443)')
+                        help='Port number (default: 443). Only used with --url.')
     parser.add_argument('--json', '-j', action='store_true',
                         help='Output results in JSON format')
     parser.add_argument('--backend', default='auto',
@@ -992,43 +1126,55 @@ Examples:
     # Select backend
     backend = select_backend(args.backend)
     if args.backend != 'auto' or backend != 'nmap':
-        # Print backend info when non-default or when fallback happened
         print(f"Using {backend} backend", file=sys.stderr)
 
     try:
-        hostname, default_port = extract_hostname_port(args.url)
-        port = args.port if args.port is not None else default_port
-
-        # Run scan with chosen backend
-        if backend == 'nmap':
-            raw_results = build_full_results(
-                scan_with_nmap(hostname, port, proxy=args.proxy)
-            )
+        # Build target list: single --url or batch --url-file
+        if args.url:
+            hostname, default_port = extract_hostname_port(args.url)
+            port = args.port if args.port is not None else default_port
+            raw_urls = [(hostname, port)]
         else:
-            raw_results = scan_with_openssl(hostname, port, proxy=args.proxy)
+            raw_entries = _parse_url_file(args.url_file)
+            if not raw_entries:
+                print("Error: url-file is empty or contains only comments", file=sys.stderr)
+                sys.exit(1)
+            raw_urls = []
+            for entry in raw_entries:
+                h, dp = extract_hostname_port(entry)
+                raw_urls.append((h, dp))
 
-        # Normalise all cipher names to IANA format before output
-        results = normalise_results(raw_results)
+        # Run scans
+        target_scans = []
+        for hostname, port in raw_urls:
+            results, error = _scan_target(hostname, port, backend, args.proxy)
+            target_scans.append((hostname, port, results, error))
 
-        # Detect total scan failure: no protocol connected and at least one returned ERROR
-        statuses = [results.get(v, {}).get('status') for v in TLS_VERSIONS]
-        if not any(s == 'SUPPORTED' for s in statuses) and any(s == 'ERROR' for s in statuses):
-            first_err = next(
-                (results[v].get('error', 'Scan failed') for v in TLS_VERSIONS
-                 if results.get(v, {}).get('status') == 'ERROR'),
-                'Scan failed: could not connect to target',
-            )
-            print(f"Scan error: {first_err}", file=sys.stderr)
-            sys.exit(1)
-
-        if args.json:
-            print(json.dumps(output_json_report(hostname, port, results), indent=2))
+        if args.url:
+            # Single-target mode — keep the original flat report format
+            hostname, port, results, error = target_scans[0]
+            if error is not None:
+                print(f"Scan error: {error}", file=sys.stderr)
+                sys.exit(1)
+            if args.json:
+                print(json.dumps(output_json_report(hostname, port, results), indent=2))
+            else:
+                _print_text_results(hostname, port, results)
+            overall_status, _ = compute_overall_compliance(results)
+            if overall_status == 'NON_COMPLIANT':
+                sys.exit(2)
         else:
-            _print_text_results(hostname, port, results)
-
-        overall_status, _ = compute_overall_compliance(results)
-        if overall_status == 'NON_COMPLIANT':
-            sys.exit(2)
+            # Multi-target mode — single aggregated report
+            if args.json:
+                print(json.dumps(output_multi_json_report(target_scans), indent=2))
+            else:
+                _print_multi_text_results(target_scans)
+            n_nc = sum(1 for _, _, r, e in target_scans if e is None and compute_overall_compliance(r)[0] == 'NON_COMPLIANT')
+            n_err = sum(1 for *_, e in target_scans if e is not None)
+            if n_nc > 0:
+                sys.exit(2)
+            elif n_err > 0:
+                sys.exit(1)
 
     except KeyboardInterrupt:
         print("\n\nScan interrupted by user.")
