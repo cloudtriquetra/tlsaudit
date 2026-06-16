@@ -129,6 +129,31 @@ TLS_SM4_GCM_SM3,TLSv1.3,RECOMMENDED,IANA,,,CHINA_GB/T_38636,
 
 Lines with `#` in the `cipher_name` column are treated as comments.
 
+**How to add a new approved cipher:**
+
+1. Look up the cipher's official IANA name at [https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-4](https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-4)
+
+2. Decide the format you want to add:
+   - **IANA format (recommended)** — use the full IANA name as `cipher_name`, leave `iana_name` empty:
+     ```
+     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLSv1.2,SECURE,IANA,,,GLOBAL,
+     ```
+   - **OpenSSL format** — use the OpenSSL shorthand as `cipher_name`, and fill in the IANA name in `iana_name` (required so normalisation works):
+     ```
+     ECDHE-RSA-AES128-GCM-SHA256,TLSv1.2,SECURE,OPENSSL,,,GLOBAL,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+     ```
+
+3. Choose the correct `rating`: `PQC_RECOMMENDED` > `RECOMMENDED` > `SECURE` > `REQUIRED`
+
+4. Set `compliance_standard` to `GLOBAL` for universal ciphers, or a specific standard (e.g. `CHINA_GB/T_38636`) if the cipher only applies in that context.
+
+5. Append the row to `approved_ciphers.csv`. **Never edit or remove existing rows** — the file is an append-only audit log of approved ciphers.
+
+6. Verify the new entry is picked up:
+   ```bash
+   python3 ssl_checker.py --url example.com --json | python3 -m json.tool | grep -A3 "<your-cipher-name>"
+   ```
+
 ## Usage
 
 ### Basic Usage
