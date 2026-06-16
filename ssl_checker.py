@@ -44,17 +44,156 @@ OPENSSL_TO_IANA = {}
 # OpenSSL executable to use (can be 'openssl' or path to tongsuo)
 OPENSSL_EXECUTABLE = 'openssl'
 
+# ---------------------------------------------------------------------------
+# Built-in normalisation tables (backend-agnostic, CSV-independent)
+# ---------------------------------------------------------------------------
+
+# nmap reports TLS 1.3 ciphers with a non-standard TLS_AKE_WITH_* prefix
+# in some versions. Map to the correct IANA names.
+_NMAP_TLS13_ALIAS = {
+    'TLS_AKE_WITH_AES_128_GCM_SHA256':       'TLS_AES_128_GCM_SHA256',
+    'TLS_AKE_WITH_AES_256_GCM_SHA384':       'TLS_AES_256_GCM_SHA384',
+    'TLS_AKE_WITH_CHACHA20_POLY1305_SHA256': 'TLS_CHACHA20_POLY1305_SHA256',
+}
+
+# Comprehensive OpenSSL shorthand → IANA name mapping.
+# Covers ciphers that may not appear in approved_ciphers.csv (e.g. NOT_APPROVED
+# ones) so that both backends produce the same IANA name for every cipher,
+# enabling accurate backend-consistency comparison in reports.
+_BUILTIN_OPENSSL_TO_IANA = {
+    # RSA key exchange (no forward secrecy)
+    'AES128-SHA':                     'TLS_RSA_WITH_AES_128_CBC_SHA',
+    'AES256-SHA':                     'TLS_RSA_WITH_AES_256_CBC_SHA',
+    'AES128-SHA256':                  'TLS_RSA_WITH_AES_128_CBC_SHA256',
+    'AES256-SHA256':                  'TLS_RSA_WITH_AES_256_CBC_SHA256',
+    'AES128-GCM-SHA256':              'TLS_RSA_WITH_AES_128_GCM_SHA256',
+    'AES256-GCM-SHA384':              'TLS_RSA_WITH_AES_256_GCM_SHA384',
+    'AES128-CCM':                     'TLS_RSA_WITH_AES_128_CCM',
+    'AES256-CCM':                     'TLS_RSA_WITH_AES_256_CCM',
+    'AES128-CCM8':                    'TLS_RSA_WITH_AES_128_CCM_8',
+    'AES256-CCM8':                    'TLS_RSA_WITH_AES_256_CCM_8',
+    'CAMELLIA128-SHA':                'TLS_RSA_WITH_CAMELLIA_128_CBC_SHA',
+    'CAMELLIA256-SHA':                'TLS_RSA_WITH_CAMELLIA_256_CBC_SHA',
+    'CAMELLIA128-SHA256':             'TLS_RSA_WITH_CAMELLIA_128_CBC_SHA256',
+    'CAMELLIA256-SHA256':             'TLS_RSA_WITH_CAMELLIA_256_CBC_SHA256',
+    'DES-CBC3-SHA':                   'TLS_RSA_WITH_3DES_EDE_CBC_SHA',
+    'RC4-SHA':                        'TLS_RSA_WITH_RC4_128_SHA',
+    'RC4-MD5':                        'TLS_RSA_WITH_RC4_128_MD5',
+    'NULL-SHA':                       'TLS_RSA_WITH_NULL_SHA',
+    'NULL-SHA256':                    'TLS_RSA_WITH_NULL_SHA256',
+    'NULL-MD5':                       'TLS_RSA_WITH_NULL_MD5',
+    'SEED-SHA':                       'TLS_RSA_WITH_SEED_CBC_SHA',
+    'ARIA128-GCM-SHA256':             'TLS_RSA_WITH_ARIA_128_GCM_SHA256',
+    'ARIA256-GCM-SHA384':             'TLS_RSA_WITH_ARIA_256_GCM_SHA384',
+    # ECDHE-RSA
+    'ECDHE-RSA-AES128-SHA':           'TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA',
+    'ECDHE-RSA-AES256-SHA':           'TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA',
+    'ECDHE-RSA-AES128-SHA256':        'TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256',
+    'ECDHE-RSA-AES256-SHA384':        'TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384',
+    'ECDHE-RSA-AES128-GCM-SHA256':    'TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256',
+    'ECDHE-RSA-AES256-GCM-SHA384':    'TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384',
+    'ECDHE-RSA-CHACHA20-POLY1305':    'TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256',
+    'ECDHE-RSA-DES-CBC3-SHA':         'TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA',
+    'ECDHE-RSA-RC4-SHA':              'TLS_ECDHE_RSA_WITH_RC4_128_SHA',
+    'ECDHE-RSA-NULL-SHA':             'TLS_ECDHE_RSA_WITH_NULL_SHA',
+    'ECDHE-RSA-CAMELLIA128-SHA256':   'TLS_ECDHE_RSA_WITH_CAMELLIA_128_CBC_SHA256',
+    'ECDHE-RSA-CAMELLIA256-SHA384':   'TLS_ECDHE_RSA_WITH_CAMELLIA_256_CBC_SHA384',
+    'ECDHE-RSA-ARIA128-GCM-SHA256':   'TLS_ECDHE_RSA_WITH_ARIA_128_GCM_SHA256',
+    'ECDHE-RSA-ARIA256-GCM-SHA384':   'TLS_ECDHE_RSA_WITH_ARIA_256_GCM_SHA384',
+    # ECDHE-ECDSA
+    'ECDHE-ECDSA-AES128-SHA':         'TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA',
+    'ECDHE-ECDSA-AES256-SHA':         'TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA',
+    'ECDHE-ECDSA-AES128-SHA256':      'TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256',
+    'ECDHE-ECDSA-AES256-SHA384':      'TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384',
+    'ECDHE-ECDSA-AES128-GCM-SHA256':  'TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256',
+    'ECDHE-ECDSA-AES256-GCM-SHA384':  'TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384',
+    'ECDHE-ECDSA-CHACHA20-POLY1305':  'TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256',
+    'ECDHE-ECDSA-DES-CBC3-SHA':       'TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA',
+    'ECDHE-ECDSA-RC4-SHA':            'TLS_ECDHE_ECDSA_WITH_RC4_128_SHA',
+    'ECDHE-ECDSA-NULL-SHA':           'TLS_ECDHE_ECDSA_WITH_NULL_SHA',
+    'ECDHE-ECDSA-CAMELLIA128-SHA256': 'TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_CBC_SHA256',
+    'ECDHE-ECDSA-CAMELLIA256-SHA384': 'TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_CBC_SHA384',
+    'ECDHE-ECDSA-ARIA128-GCM-SHA256': 'TLS_ECDHE_ECDSA_WITH_ARIA_128_GCM_SHA256',
+    'ECDHE-ECDSA-ARIA256-GCM-SHA384': 'TLS_ECDHE_ECDSA_WITH_ARIA_256_GCM_SHA384',
+    # DHE-RSA
+    'DHE-RSA-AES128-SHA':             'TLS_DHE_RSA_WITH_AES_128_CBC_SHA',
+    'DHE-RSA-AES256-SHA':             'TLS_DHE_RSA_WITH_AES_256_CBC_SHA',
+    'DHE-RSA-AES128-SHA256':          'TLS_DHE_RSA_WITH_AES_128_CBC_SHA256',
+    'DHE-RSA-AES256-SHA256':          'TLS_DHE_RSA_WITH_AES_256_CBC_SHA256',
+    'DHE-RSA-AES128-GCM-SHA256':      'TLS_DHE_RSA_WITH_AES_128_GCM_SHA256',
+    'DHE-RSA-AES256-GCM-SHA384':      'TLS_DHE_RSA_WITH_AES_256_GCM_SHA384',
+    'DHE-RSA-CHACHA20-POLY1305':      'TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256',
+    'DHE-RSA-DES-CBC3-SHA':           'TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA',
+    'DHE-RSA-CAMELLIA128-SHA':        'TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA',
+    'DHE-RSA-CAMELLIA256-SHA':        'TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA',
+    'DHE-RSA-CAMELLIA128-SHA256':     'TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256',
+    'DHE-RSA-CAMELLIA256-SHA256':     'TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA256',
+    'DHE-RSA-AES128-CCM':             'TLS_DHE_RSA_WITH_AES_128_CCM',
+    'DHE-RSA-AES256-CCM':             'TLS_DHE_RSA_WITH_AES_256_CCM',
+    'DHE-RSA-AES128-CCM8':            'TLS_DHE_RSA_WITH_AES_128_CCM_8',
+    'DHE-RSA-AES256-CCM8':            'TLS_DHE_RSA_WITH_AES_256_CCM_8',
+    'DHE-RSA-ARIA128-GCM-SHA256':     'TLS_DHE_RSA_WITH_ARIA_128_GCM_SHA256',
+    'DHE-RSA-ARIA256-GCM-SHA384':     'TLS_DHE_RSA_WITH_ARIA_256_GCM_SHA384',
+    'DHE-RSA-SEED-SHA':               'TLS_DHE_RSA_WITH_SEED_CBC_SHA',
+    # DHE-DSS
+    'DHE-DSS-AES128-SHA':             'TLS_DHE_DSS_WITH_AES_128_CBC_SHA',
+    'DHE-DSS-AES256-SHA':             'TLS_DHE_DSS_WITH_AES_256_CBC_SHA',
+    'DHE-DSS-AES128-SHA256':          'TLS_DHE_DSS_WITH_AES_128_CBC_SHA256',
+    'DHE-DSS-AES256-SHA256':          'TLS_DHE_DSS_WITH_AES_256_CBC_SHA256',
+    'DHE-DSS-AES128-GCM-SHA256':      'TLS_DHE_DSS_WITH_AES_128_GCM_SHA256',
+    'DHE-DSS-AES256-GCM-SHA384':      'TLS_DHE_DSS_WITH_AES_256_GCM_SHA384',
+    'DHE-DSS-CAMELLIA128-SHA':        'TLS_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA',
+    'DHE-DSS-CAMELLIA256-SHA':        'TLS_DHE_DSS_WITH_CAMELLIA_256_CBC_SHA',
+    # ECDH static (non-ephemeral)
+    'ECDH-RSA-AES128-SHA':            'TLS_ECDH_RSA_WITH_AES_128_CBC_SHA',
+    'ECDH-RSA-AES256-SHA':            'TLS_ECDH_RSA_WITH_AES_256_CBC_SHA',
+    'ECDH-RSA-AES128-SHA256':         'TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256',
+    'ECDH-RSA-AES256-SHA384':         'TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384',
+    'ECDH-RSA-AES128-GCM-SHA256':     'TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256',
+    'ECDH-RSA-AES256-GCM-SHA384':     'TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384',
+    'ECDH-ECDSA-AES128-SHA':          'TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA',
+    'ECDH-ECDSA-AES256-SHA':          'TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA',
+    'ECDH-ECDSA-AES128-SHA256':       'TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256',
+    'ECDH-ECDSA-AES256-SHA384':       'TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384',
+    'ECDH-ECDSA-AES128-GCM-SHA256':   'TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256',
+    'ECDH-ECDSA-AES256-GCM-SHA384':   'TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384',
+    # DH static
+    'DH-RSA-AES128-SHA':              'TLS_DH_RSA_WITH_AES_128_CBC_SHA',
+    'DH-RSA-AES256-SHA':              'TLS_DH_RSA_WITH_AES_256_CBC_SHA',
+    'DH-RSA-AES128-SHA256':           'TLS_DH_RSA_WITH_AES_128_CBC_SHA256',
+    'DH-RSA-AES256-SHA256':           'TLS_DH_RSA_WITH_AES_256_CBC_SHA256',
+    'DH-RSA-AES128-GCM-SHA256':       'TLS_DH_RSA_WITH_AES_128_GCM_SHA256',
+    'DH-RSA-AES256-GCM-SHA384':       'TLS_DH_RSA_WITH_AES_256_GCM_SHA384',
+    'DH-DSS-AES128-SHA':              'TLS_DH_DSS_WITH_AES_128_CBC_SHA',
+    'DH-DSS-AES256-SHA':              'TLS_DH_DSS_WITH_AES_256_CBC_SHA',
+    # Anonymous (no authentication)
+    'ADH-AES128-SHA':                 'TLS_DH_anon_WITH_AES_128_CBC_SHA',
+    'ADH-AES256-SHA':                 'TLS_DH_anon_WITH_AES_256_CBC_SHA',
+    'ADH-AES128-GCM-SHA256':          'TLS_DH_anon_WITH_AES_128_GCM_SHA256',
+    'ADH-AES256-GCM-SHA384':          'TLS_DH_anon_WITH_AES_256_GCM_SHA384',
+    'AECDH-AES128-SHA':               'TLS_ECDH_anon_WITH_AES_128_CBC_SHA',
+    'AECDH-AES256-SHA':               'TLS_ECDH_anon_WITH_AES_256_CBC_SHA',
+    'AECDH-NULL-SHA':                 'TLS_ECDH_anon_WITH_NULL_SHA',
+}
+
 
 # ---------------------------------------------------------------------------
 # Normalisation
 # ---------------------------------------------------------------------------
 
 def normalise_to_iana(cipher_name):
-    """Convert an OpenSSL-format cipher name to IANA format.
-
-    If the name is already in IANA format (or unknown), it is returned unchanged.
+    """Return the IANA name for a cipher, applying mappings in priority order:
+    1. CSV-derived OPENSSL_TO_IANA (approved ciphers with iana_name column)
+    2. nmap TLS 1.3 non-standard aliases (TLS_AKE_WITH_* → TLS_AES_*)
+    3. Built-in comprehensive OpenSSL shorthand table
+    4. Passthrough (name already in IANA format or genuinely unknown)
     """
-    return OPENSSL_TO_IANA.get(cipher_name, cipher_name)
+    return (
+        OPENSSL_TO_IANA.get(cipher_name)
+        or _NMAP_TLS13_ALIAS.get(cipher_name)
+        or _BUILTIN_OPENSSL_TO_IANA.get(cipher_name)
+        or cipher_name
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -117,6 +117,62 @@ class TestNormalisation(unittest.TestCase):
         ]
         self.assertEqual([], not_normalised, f"OPENSSL ciphers not normalised: {not_normalised}")
 
+    def test_nmap_tls13_alias_normalised(self):
+        """nmap TLS_AKE_WITH_* aliases must normalise to correct IANA TLS_AES_* names."""
+        cases = {
+            'TLS_AKE_WITH_AES_128_GCM_SHA256':       'TLS_AES_128_GCM_SHA256',
+            'TLS_AKE_WITH_AES_256_GCM_SHA384':       'TLS_AES_256_GCM_SHA384',
+            'TLS_AKE_WITH_CHACHA20_POLY1305_SHA256': 'TLS_CHACHA20_POLY1305_SHA256',
+        }
+        for alias, expected in cases.items():
+            with self.subTest(alias=alias):
+                self.assertEqual(expected, ssl_checker.normalise_to_iana(alias))
+
+    def test_builtin_rsa_openssl_names_normalised(self):
+        """Common RSA OpenSSL shorthand names not in CSV must normalise via built-in table."""
+        cases = {
+            'AES128-SHA':        'TLS_RSA_WITH_AES_128_CBC_SHA',
+            'AES256-SHA':        'TLS_RSA_WITH_AES_256_CBC_SHA',
+            'AES128-GCM-SHA256': 'TLS_RSA_WITH_AES_128_GCM_SHA256',
+            'AES256-GCM-SHA384': 'TLS_RSA_WITH_AES_256_GCM_SHA384',
+            'CAMELLIA128-SHA':   'TLS_RSA_WITH_CAMELLIA_128_CBC_SHA',
+            'DES-CBC3-SHA':      'TLS_RSA_WITH_3DES_EDE_CBC_SHA',
+        }
+        for openssl_name, expected in cases.items():
+            with self.subTest(name=openssl_name):
+                self.assertEqual(expected, ssl_checker.normalise_to_iana(openssl_name))
+
+    def test_builtin_ecdhe_openssl_names_normalised(self):
+        """Common ECDHE OpenSSL shorthand names must normalise via built-in table."""
+        cases = {
+            'ECDHE-RSA-AES128-SHA':        'TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA',
+            'ECDHE-RSA-AES256-SHA384':     'TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384',
+            'ECDHE-ECDSA-AES128-SHA256':   'TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256',
+            'ECDHE-ECDSA-AES256-SHA384':   'TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384',
+            'ECDHE-RSA-CHACHA20-POLY1305': 'TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256',
+        }
+        for openssl_name, expected in cases.items():
+            with self.subTest(name=openssl_name):
+                self.assertEqual(expected, ssl_checker.normalise_to_iana(openssl_name))
+
+    def test_builtin_dhe_openssl_names_normalised(self):
+        """Common DHE OpenSSL shorthand names must normalise via built-in table."""
+        cases = {
+            'DHE-RSA-AES128-SHA':       'TLS_DHE_RSA_WITH_AES_128_CBC_SHA',
+            'DHE-RSA-AES256-SHA256':    'TLS_DHE_RSA_WITH_AES_256_CBC_SHA256',
+            'DHE-RSA-CAMELLIA128-SHA':  'TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA',
+            'DHE-RSA-CAMELLIA256-SHA':  'TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA',
+        }
+        for openssl_name, expected in cases.items():
+            with self.subTest(name=openssl_name):
+                self.assertEqual(expected, ssl_checker.normalise_to_iana(openssl_name))
+
+    def test_csv_mapping_takes_priority_over_builtin(self):
+        """If a cipher appears in both CSV and built-in table, CSV wins."""
+        # ECDHE-RSA-AES256-GCM-SHA384 is in the CSV; built-in agrees but CSV must win.
+        result = ssl_checker.normalise_to_iana('ECDHE-RSA-AES256-GCM-SHA384')
+        self.assertEqual('TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384', result)
+
 
 # ---------------------------------------------------------------------------
 # TestComplianceParity
