@@ -764,6 +764,38 @@ def normalise_results(results):
 
 
 # ---------------------------------------------------------------------------
+# Overall compliance
+# ---------------------------------------------------------------------------
+
+def compute_overall_compliance(results):
+    """Return (status, findings) for the full scan.
+
+    status is 'COMPLIANT' or 'NON_COMPLIANT'.
+    findings is a list of human-readable strings describing each violation.
+    A target is NON_COMPLIANT if:
+      - Any deprecated protocol (TLS 1.0 / 1.1) is SUPPORTED
+      - Any cipher on any supported protocol is NOT_APPROVED (including
+        ciphers absent from approved_ciphers.csv, which default to NOT_APPROVED)
+    """
+    findings = []
+    for tls_name in TLS_VERSIONS:
+        result = results.get(tls_name, {})
+        if result.get('status') != 'SUPPORTED':
+            continue
+        proto_rating = APPROVED_PROTOCOLS.get(tls_name, 'NOT_APPROVED')
+        if proto_rating == 'NOT_APPROVED':
+            findings.append(f"{tls_name} is supported (deprecated protocol)")
+        proto = result.get('protocol', tls_name)
+        for cipher_entry in result.get('ciphers', []):
+            iana = cipher_entry['iana']
+            rating = check_cipher_compliance(iana, proto)[0]
+            if rating == 'NOT_APPROVED':
+                findings.append(f"NOT_APPROVED cipher on {tls_name}: {iana}")
+    status = 'NON_COMPLIANT' if findings else 'COMPLIANT'
+    return status, findings
+
+
+# ---------------------------------------------------------------------------
 # JSON output
 # ---------------------------------------------------------------------------
 
@@ -796,9 +828,12 @@ def output_json_report(hostname, port, results):
 
     Cipher names in ``results`` must already be normalised to IANA format.
     """
+    overall_status, findings = compute_overall_compliance(results)
     report = {
         'scan_timestamp': datetime.now().isoformat(),
         'target': {'hostname': hostname, 'port': port},
+        'overall_compliance': overall_status,
+        'findings': findings,
         'protocols': {},
     }
 
@@ -888,11 +923,20 @@ def _print_protocol_block(tls_name, result):
 
 
 def _print_text_results(hostname, port, results):
+    overall_status, findings = compute_overall_compliance(results)
     print(f"\n{'='*70}")
-    print(f"SSL/TLS Scanner Results for: {hostname}:{port}")
+    print(f"TLS Audit Results for: {hostname}:{port}")
+    icon = '✅ COMPLIANT' if overall_status == 'COMPLIANT' else '❌ NON_COMPLIANT'
+    print(f"Overall compliance: {icon}")
     print(f"{'='*70}\n")
     for tls_name in TLS_VERSIONS:
         _print_protocol_block(tls_name, results.get(tls_name, {}))
+        print()
+    if findings:
+        print(f"{'='*70}")
+        print("Findings:")
+        for f in findings:
+            print(f"  ✗ {f}")
         print()
 
 
@@ -970,6 +1014,10 @@ Examples:
             print(json.dumps(output_json_report(hostname, port, results), indent=2))
         else:
             _print_text_results(hostname, port, results)
+
+        overall_status, _ = compute_overall_compliance(results)
+        if overall_status == 'NON_COMPLIANT':
+            sys.exit(2)
 
     except KeyboardInterrupt:
         print("\n\nScan interrupted by user.")

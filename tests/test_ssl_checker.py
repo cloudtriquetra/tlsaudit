@@ -341,6 +341,112 @@ class TestOutputNormalisation(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# TestOverallCompliance
+# ---------------------------------------------------------------------------
+
+class TestOverallCompliance(unittest.TestCase):
+
+    def setUp(self):
+        _ensure_module_loaded()
+
+    def _make_results(self, supported_protocols, ciphers_by_proto):
+        """Build a normalised results dict for compliance testing."""
+        results = {}
+        for v in ssl_checker.TLS_VERSIONS:
+            if v in supported_protocols:
+                cipher_names = ciphers_by_proto.get(v, ['TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384'])
+                results[v] = {
+                    'status': 'SUPPORTED',
+                    'protocol': v,
+                    'ciphers': [{'iana': c, 'original': c} for c in cipher_names],
+                }
+            else:
+                results[v] = {'status': 'SERVER_UNSUPPORTED'}
+        return results
+
+    def test_compliant_tls12_and_13_approved_ciphers(self):
+        results = self._make_results(
+            ['TLSv1.2', 'TLSv1.3'],
+            {
+                'TLSv1.2': ['TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384'],
+                'TLSv1.3': ['TLS_AES_256_GCM_SHA384'],
+            },
+        )
+        status, findings = ssl_checker.compute_overall_compliance(results)
+        self.assertEqual('COMPLIANT', status)
+        self.assertEqual([], findings)
+
+    def test_non_compliant_tls10_supported(self):
+        results = self._make_results(
+            ['TLSv1.0', 'TLSv1.2'],
+            {'TLSv1.0': ['TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384'],
+             'TLSv1.2': ['TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384']},
+        )
+        status, findings = ssl_checker.compute_overall_compliance(results)
+        self.assertEqual('NON_COMPLIANT', status)
+        self.assertTrue(any('TLSv1.0' in f for f in findings))
+
+    def test_non_compliant_tls11_supported(self):
+        results = self._make_results(['TLSv1.1'], {})
+        status, findings = ssl_checker.compute_overall_compliance(results)
+        self.assertEqual('NON_COMPLIANT', status)
+        self.assertTrue(any('TLSv1.1' in f for f in findings))
+
+    def test_non_compliant_not_approved_cipher(self):
+        results = self._make_results(
+            ['TLSv1.2'],
+            {'TLSv1.2': ['TLS_RSA_WITH_RC4_128_SHA']},  # NOT_APPROVED
+        )
+        status, findings = ssl_checker.compute_overall_compliance(results)
+        self.assertEqual('NON_COMPLIANT', status)
+        self.assertTrue(any('TLS_RSA_WITH_RC4_128_SHA' in f for f in findings))
+
+    def test_non_compliant_unknown_cipher_treated_as_not_approved(self):
+        results = self._make_results(
+            ['TLSv1.2'],
+            {'TLSv1.2': ['TLS_SOME_UNKNOWN_CIPHER_SHA256']},
+        )
+        status, _ = ssl_checker.compute_overall_compliance(results)
+        self.assertEqual('NON_COMPLIANT', status)
+
+    def test_json_report_includes_overall_compliance(self):
+        results = self._make_results(
+            ['TLSv1.2'],
+            {'TLSv1.2': ['TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384']},
+        )
+        report = ssl_checker.output_json_report('example.com', 443, results)
+        self.assertIn('overall_compliance', report)
+        self.assertIn('findings', report)
+        self.assertIsInstance(report['findings'], list)
+
+    def test_json_report_compliant_has_empty_findings(self):
+        results = self._make_results(
+            ['TLSv1.2'],
+            {'TLSv1.2': ['TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384']},
+        )
+        report = ssl_checker.output_json_report('example.com', 443, results)
+        self.assertEqual('COMPLIANT', report['overall_compliance'])
+        self.assertEqual([], report['findings'])
+
+    def test_json_report_non_compliant_has_findings(self):
+        results = self._make_results(
+            ['TLSv1.0', 'TLSv1.2'],
+            {'TLSv1.0': ['TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384'],
+             'TLSv1.2': ['TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384']},
+        )
+        report = ssl_checker.output_json_report('example.com', 443, results)
+        self.assertEqual('NON_COMPLIANT', report['overall_compliance'])
+        self.assertGreater(len(report['findings']), 0)
+
+    def test_all_unsupported_protocols_is_compliant(self):
+        """A server with no TLS at all should not be flagged NON_COMPLIANT."""
+        results = {v: {'status': 'SERVER_UNSUPPORTED'} for v in ssl_checker.TLS_VERSIONS}
+        status, findings = ssl_checker.compute_overall_compliance(results)
+        self.assertEqual('COMPLIANT', status)
+        self.assertEqual([], findings)
+
+
+# ---------------------------------------------------------------------------
 # TestIntegration — network tests (skipped unless INTEGRATION=1)
 # ---------------------------------------------------------------------------
 

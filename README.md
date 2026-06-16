@@ -343,8 +343,37 @@ The JSON report always uses IANA cipher names. When the backend (nmap or OpenSSL
 
 ## Exit Codes
 
-- `0`: Scan completed successfully
-- `1`: Error during scan (connection failed, invalid input, etc.)
+- `0`: Scan completed — target is **COMPLIANT**
+- `1`: Scan error (connection failed, invalid input, nmap not found, etc.)
+- `2`: Scan completed — target is **NON_COMPLIANT**
+
+This makes the tool pipeline-native:
+
+```bash
+# Fail the pipeline if the target is non-compliant
+python3 ssl_checker.py --url api.example.com --json > report.json
+# exit 0 = compliant, exit 2 = non-compliant, exit 1 = scan error
+
+# One-liner gate
+python3 ssl_checker.py --url api.example.com && echo "PASS" || echo "FAIL"
+```
+
+The JSON report includes `overall_compliance` and `findings` at the top level for easy parsing:
+
+```json
+{
+  "overall_compliance": "NON_COMPLIANT",
+  "findings": [
+    "TLSv1.0 is supported (deprecated protocol)",
+    "NOT_APPROVED cipher on TLSv1.2: TLS_RSA_WITH_AES_128_CBC_SHA"
+  ],
+  ...
+}
+```
+
+A target is NON_COMPLIANT if:
+- Any deprecated protocol (TLS 1.0 or 1.1) is supported
+- Any cipher is not in `approved_ciphers.csv` (defaults to NOT_APPROVED)
 
 ## Security Considerations
 
