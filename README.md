@@ -175,14 +175,26 @@ The `--backend auto` mode (default) selects nmap automatically when it is instal
 ### Proxy Support
 
 ```bash
-# Scan through HTTP/HTTPS proxy
+# HTTP CONNECT proxy — works with both nmap and openssl backends
 python3 ssl_checker.py --url example.com --proxy http://proxy.corp.com:8080
+python3 ssl_checker.py --url example.com --proxy http://10.0.0.1:443
 
-# Scan through SOCKS proxy
-python3 ssl_checker.py --url example.com --socks-proxy socks5://proxy.corp.com:1080
+# SOCKS4 proxy — works with both backends
+python3 ssl_checker.py --url example.com --socks-proxy socks4://proxy.corp.com:1080
+
+# SOCKS5 proxy — openssl backend only
+python3 ssl_checker.py --url example.com --socks-proxy socks5://proxy.corp.com:1080 --backend openssl
 ```
 
-Proxy support is only available with the openssl backend.
+**Proxy compatibility:**
+
+| Proxy type | nmap backend | openssl backend |
+|------------|-------------|-----------------|
+| HTTP CONNECT (`http://host:port`) | ✓ via `--proxies` | ✓ via `-proxy` |
+| SOCKS4 (`socks4://`) | ✓ via `--proxies` | ✓ via `-socksport` |
+| SOCKS5 (`socks5://`) | ✗ not supported by nmap | ✓ via `-socksport` |
+
+The nmap backend passes HTTP CONNECT proxies via `--proxies http://ip:port` — this works as long as the proxy supports the HTTP CONNECT method, which is standard for any proxy used to tunnel HTTPS.
 
 ### Regulatory Compliance Standards
 

@@ -490,14 +490,19 @@ def scan_with_openssl(hostname, port, proxy=None, socks_proxy=None):
 
 def _build_nmap_cmd(hostname, port, socks_proxy, proxy):
     cmd = ['nmap', '--script', 'ssl-enum-ciphers', '-p', str(port), hostname, '-oX', '-']
+    # nmap --proxies supports HTTP CONNECT (http://) and SOCKS4 (socks4://).
+    # SOCKS5 is not supported by nmap; pass socks_proxy only if it is socks4://.
     if socks_proxy:
-        cmd.extend(['--proxies', socks_proxy])
+        if socks_proxy.startswith('socks5://'):
+            print(
+                "Warning: nmap does not support SOCKS5 proxies. "
+                "Use socks4:// or an HTTP CONNECT proxy (http://) instead.",
+                file=sys.stderr,
+            )
+        else:
+            cmd.extend(['--proxies', socks_proxy])
     elif proxy:
-        print(
-            "Warning: HTTP proxy is not supported by the nmap backend. "
-            "Use --socks-proxy with a SOCKS4/5 proxy instead.",
-            file=sys.stderr,
-        )
+        cmd.extend(['--proxies', proxy])
     return cmd
 
 
