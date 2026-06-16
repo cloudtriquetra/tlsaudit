@@ -267,7 +267,7 @@ def get_available_ciphers(tls_flag):
         return []
 
 
-def find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers=None, proxy=None, socks_proxy=None):
+def find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers=None, proxy=None):
     """Find all supported ciphers for a TLS version by iteratively testing."""
     supported_ciphers = []
     seen = set()
@@ -298,8 +298,6 @@ def find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers=None,
 
             if proxy:
                 cmd.extend(['-proxy', proxy])
-            elif socks_proxy:
-                cmd.extend(['-socksport', socks_proxy])
 
             result = subprocess.run(
                 cmd,
@@ -343,7 +341,7 @@ def find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers=None,
     return supported_ciphers
 
 
-def check_tls_version(hostname, port, tls_name, tls_flag, proxy=None, socks_proxy=None):
+def check_tls_version(hostname, port, tls_name, tls_flag, proxy=None):
     """Check if a specific TLS version is supported and get cipher info (openssl backend)."""
     try:
         cmd = [
@@ -355,9 +353,6 @@ def check_tls_version(hostname, port, tls_name, tls_flag, proxy=None, socks_prox
 
         if proxy:
             cmd.extend(['-proxy', proxy])
-        elif socks_proxy:
-            cmd.extend(['-socksport', socks_proxy])
-
         if tls_flag in ['-tls1', '-tls1_1']:
             cmd.extend(['-cipher', 'DEFAULT:@SECLEVEL=0'])
 
@@ -428,7 +423,7 @@ def check_tls_version(hostname, port, tls_name, tls_flag, proxy=None, socks_prox
             if is_tls13_cipher == protocol_is_tls13:
                 all_ciphers = find_supported_ciphers(
                     hostname, port, tls_name, tls_flag,
-                    proxy=proxy, socks_proxy=socks_proxy,
+                    proxy=proxy,
                 )
                 if cipher not in all_ciphers:
                     all_ciphers.insert(0, cipher)
@@ -473,13 +468,13 @@ def check_tls_version(hostname, port, tls_name, tls_flag, proxy=None, socks_prox
         return {'status': 'ERROR', 'error': f'Unexpected error: {str(e)[:100]}'}
 
 
-def scan_with_openssl(hostname, port, proxy=None, socks_proxy=None):
+def scan_with_openssl(hostname, port, proxy=None):
     """Run openssl-based scan and return per-protocol results dict."""
     results = {}
     for tls_name, tls_flag in TLS_VERSION_FLAGS.items():
         results[tls_name] = check_tls_version(
             hostname, port, tls_name, tls_flag,
-            proxy=proxy, socks_proxy=socks_proxy,
+            proxy=proxy,
         )
     return results
 
@@ -488,20 +483,9 @@ def scan_with_openssl(hostname, port, proxy=None, socks_proxy=None):
 # nmap backend
 # ---------------------------------------------------------------------------
 
-def _build_nmap_cmd(hostname, port, socks_proxy, proxy):
+def _build_nmap_cmd(hostname, port, proxy):
     cmd = ['nmap', '--script', 'ssl-enum-ciphers', '-p', str(port), hostname, '-oX', '-']
-    # nmap --proxies supports HTTP CONNECT (http://) and SOCKS4 (socks4://).
-    # SOCKS5 is not supported by nmap; pass socks_proxy only if it is socks4://.
-    if socks_proxy:
-        if socks_proxy.startswith('socks5://'):
-            print(
-                "Warning: nmap does not support SOCKS5 proxies. "
-                "Use socks4:// or an HTTP CONNECT proxy (http://) instead.",
-                file=sys.stderr,
-            )
-        else:
-            cmd.extend(['--proxies', socks_proxy])
-    elif proxy:
+    if proxy:
         cmd.extend(['--proxies', proxy])
     return cmd
 
@@ -588,9 +572,9 @@ def _parse_nmap_xml(xml_text, hostname, port):
     return results
 
 
-def scan_with_nmap(hostname, port, socks_proxy=None, proxy=None):
+def scan_with_nmap(hostname, port, proxy=None):
     """Run nmap ssl-enum-ciphers and return per-protocol raw results dict."""
-    cmd = _build_nmap_cmd(hostname, port, socks_proxy, proxy)
+    cmd = _build_nmap_cmd(hostname, port, proxy)
     stdout, error = _run_nmap(cmd, hostname, port)
     if error:
         return error
@@ -804,10 +788,8 @@ Examples:
                             'nmap, or openssl. openssl required for CHINA_GB/T_38636 compliance.'
                         ))
     parser.add_argument('--proxy',
-                        help='HTTP/HTTPS proxy (e.g., http://proxy.example.com:8080). '
-                             'Note: HTTP proxy only works with the openssl backend.')
-    parser.add_argument('--socks-proxy',
-                        help='SOCKS proxy (e.g., socks5://proxy.example.com:1080)')
+                        help='HTTP CONNECT proxy (e.g., http://proxy.example.com:8080). '
+                             'Supported by both nmap and openssl backends.')
     parser.add_argument('--compliance-standard', default='GLOBAL',
                         help='Compliance standard to enforce (default: GLOBAL, options: GLOBAL, CHINA_GB/T_38636, etc.)')
     parser.add_argument('--tongsuo-path',
@@ -837,12 +819,10 @@ Examples:
         # Run scan with chosen backend
         if backend == 'nmap':
             raw_results = build_full_results(
-                scan_with_nmap(hostname, port, socks_proxy=args.socks_proxy, proxy=args.proxy)
+                scan_with_nmap(hostname, port, proxy=args.proxy)
             )
         else:
-            raw_results = scan_with_openssl(
-                hostname, port, proxy=args.proxy, socks_proxy=args.socks_proxy
-            )
+            raw_results = scan_with_openssl(hostname, port, proxy=args.proxy)
 
         # Normalise all cipher names to IANA format before output
         results = normalise_results(raw_results)
