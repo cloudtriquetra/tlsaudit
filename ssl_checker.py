@@ -1010,6 +1010,17 @@ Examples:
         # Normalise all cipher names to IANA format before output
         results = normalise_results(raw_results)
 
+        # Detect total scan failure: no protocol connected and at least one returned ERROR
+        statuses = [results.get(v, {}).get('status') for v in TLS_VERSIONS]
+        if not any(s == 'SUPPORTED' for s in statuses) and any(s == 'ERROR' for s in statuses):
+            first_err = next(
+                (results[v].get('error', 'Scan failed') for v in TLS_VERSIONS
+                 if results.get(v, {}).get('status') == 'ERROR'),
+                'Scan failed: could not connect to target',
+            )
+            print(f"Scan error: {first_err}", file=sys.stderr)
+            sys.exit(1)
+
         if args.json:
             print(json.dumps(output_json_report(hostname, port, results), indent=2))
         else:

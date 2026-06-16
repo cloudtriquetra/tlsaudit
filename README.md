@@ -344,8 +344,10 @@ The JSON report always uses IANA cipher names. When the backend (nmap or OpenSSL
 ## Exit Codes
 
 - `0`: Scan completed — target is **COMPLIANT**
-- `1`: Scan error (connection failed, invalid input, nmap not found, etc.)
+- `1`: Scan error — could not connect to target (DNS failure, connection refused, host unreachable, etc.)
 - `2`: Scan completed — target is **NON_COMPLIANT**
+
+Exit 1 is only returned when the tool could not reach the server at all. A server that responds but supports only deprecated protocols or weak ciphers exits 2, not 1.
 
 This makes the tool pipeline-native:
 
@@ -369,6 +371,12 @@ The JSON report includes `overall_compliance` and `findings` at the top level fo
   ],
   ...
 }
+```
+
+When the scan fails entirely (exit 1), no JSON is written — the error is printed to stderr:
+
+```
+Scan error: DNS resolution failed for "bad-host.invalid". Check hostname spelling and DNS availability.
 ```
 
 A target is NON_COMPLIANT if:

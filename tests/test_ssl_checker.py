@@ -447,6 +447,40 @@ class TestOverallCompliance(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# TestScanErrorDetection
+# ---------------------------------------------------------------------------
+
+class TestScanErrorDetection(unittest.TestCase):
+    """Verify the scan-error guard that triggers exit 1 when all protocols ERROR."""
+
+    def _scan_failed(self, results):
+        """Mirrors the detection logic in main()."""
+        statuses = [results.get(v, {}).get('status') for v in ssl_checker.TLS_VERSIONS]
+        return (
+            not any(s == 'SUPPORTED' for s in statuses)
+            and any(s == 'ERROR' for s in statuses)
+        )
+
+    def test_all_error_is_scan_failure(self):
+        results = {v: {'status': 'ERROR', 'error': 'DNS resolution failed'} for v in ssl_checker.TLS_VERSIONS}
+        self.assertTrue(self._scan_failed(results))
+
+    def test_all_server_unsupported_is_not_scan_failure(self):
+        results = {v: {'status': 'SERVER_UNSUPPORTED'} for v in ssl_checker.TLS_VERSIONS}
+        self.assertFalse(self._scan_failed(results))
+
+    def test_partial_supported_with_some_errors_is_not_scan_failure(self):
+        results = {v: {'status': 'ERROR'} for v in ssl_checker.TLS_VERSIONS}
+        results['TLSv1.2'] = {'status': 'SUPPORTED', 'ciphers': []}
+        self.assertFalse(self._scan_failed(results))
+
+    def test_mixed_error_and_unsupported_is_scan_failure(self):
+        results = {v: {'status': 'SERVER_UNSUPPORTED'} for v in ssl_checker.TLS_VERSIONS}
+        results['TLSv1.2'] = {'status': 'ERROR', 'error': 'Connection refused'}
+        self.assertTrue(self._scan_failed(results))
+
+
+# ---------------------------------------------------------------------------
 # TestIntegration — network tests (skipped unless INTEGRATION=1)
 # ---------------------------------------------------------------------------
 
