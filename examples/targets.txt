@@ -1,0 +1,19 @@
+# TLS Audit - example target list
+# One entry per line: hostname, hostname:port, or full URL
+# Lines starting with # are ignored
+
+# Public HTTPS endpoints (default port 443)
+google.com
+github.com
+cloudflare.com
+
+# Explicit ports
+google.com:443
+github.com:443
+
+# Full URLs
+https://example.com
+
+# Non-standard ports (badssl.com test endpoints)
+tls-v1-2.badssl.com:1012
+tls-v1-0.badssl.com:1010

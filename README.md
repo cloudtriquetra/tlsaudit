@@ -393,10 +393,15 @@ python3 ssl_checker.py --url api.example.com --json > report.json
 python3 ssl_checker.py --url api.example.com && echo "PASS" || echo "FAIL"
 ```
 
-The top-level `overall_compliance` and `findings` fields are always present for easy pipeline parsing (see JSON Format section for the full schema). When the scan fails entirely (exit 1), no JSON is written — the error is printed to stderr:
+The top-level `overall_compliance` and `findings` fields are always present for easy pipeline parsing (see JSON Format section for the full schema). Even on a scan error (exit 1), a JSON report is written — `overall_compliance` is `ERROR` and the target entry includes an `error` field:
 
-```
-Scan error: DNS resolution failed for "bad-host.invalid". Check hostname spelling and DNS availability.
+```json
+{
+  "overall_compliance": "ERROR",
+  "summary": { "targets_total": 1, "targets_compliant": 0, "targets_non_compliant": 0, "targets_error": 1 },
+  "targets": [{ "hostname": "bad-host.invalid", "port": 443, "overall_compliance": "ERROR",
+                "error": "Host bad-host.invalid not found or not reachable", "findings": [], "protocols": {} }]
+}
 ```
 
 A target is NON_COMPLIANT if:
