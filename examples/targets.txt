@@ -1,8 +1,12 @@
 # TLS Audit - example target list
-# One entry per line: hostname, hostname:port, or full URL
-# Lines starting with # are ignored
+# Format: host[:port] [proxy_url]
+#
+# - host[:port]  required  hostname or URL; port defaults to 443
+# - proxy_url    optional  per-target HTTP CONNECT proxy; overrides --proxy
+#
+# Lines starting with # and blank lines are ignored.
 
-# Public HTTPS endpoints (default port 443)
+# No proxy (uses global --proxy if supplied, otherwise direct)
 google.com
 github.com
 cloudflare.com
@@ -13,6 +17,10 @@ github.com:443
 
 # Full URLs
 https://example.com
+
+# Per-target proxy (overrides --proxy for this line only)
+api.internal.corp.com:443 http://proxy1.corp.com:8080
+legacy.internal.corp.com:8443 http://proxy2.corp.com:443
 
 # Non-standard ports (badssl.com test endpoints)
 tls-v1-2.badssl.com:1012

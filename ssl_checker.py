@@ -849,13 +849,22 @@ def _scan_target(hostname, port, backend, proxy):
 
 
 def _parse_url_file(path):
-    """Read scan targets from a file. One URL / host[:port] per line. # = comment."""
+    """Read scan targets from a file. Returns list of (url, proxy_or_None).
+
+    Line format:  host[:port]  [proxy_url]
+    The proxy field is optional; when absent the caller's global --proxy applies.
+    Lines starting with # and blank lines are ignored.
+    """
     targets = []
     with open(path) as fh:
         for line in fh:
             line = line.strip()
-            if line and not line.startswith('#'):
-                targets.append(line)
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split(None, 1)   # split on first whitespace
+            url = parts[0]
+            proxy = parts[1] if len(parts) > 1 else None
+            targets.append((url, proxy))
     return targets
 
 
@@ -1129,25 +1138,27 @@ Examples:
         print(f"Using {backend} backend", file=sys.stderr)
 
     try:
-        # Build target list: single --url or batch --url-file
+        # Build target list: (hostname, port, effective_proxy)
         if args.url:
             hostname, default_port = extract_hostname_port(args.url)
             port = args.port if args.port is not None else default_port
-            raw_urls = [(hostname, port)]
+            raw_urls = [(hostname, port, args.proxy)]
         else:
             raw_entries = _parse_url_file(args.url_file)
             if not raw_entries:
                 print("Error: url-file is empty or contains only comments", file=sys.stderr)
                 sys.exit(1)
             raw_urls = []
-            for entry in raw_entries:
+            for entry, entry_proxy in raw_entries:
                 h, dp = extract_hostname_port(entry)
-                raw_urls.append((h, dp))
+                # per-target proxy takes precedence over global --proxy
+                effective_proxy = entry_proxy if entry_proxy is not None else args.proxy
+                raw_urls.append((h, dp, effective_proxy))
 
         # Run scans
         target_scans = []
-        for hostname, port in raw_urls:
-            results, error = _scan_target(hostname, port, backend, args.proxy)
+        for hostname, port, proxy in raw_urls:
+            results, error = _scan_target(hostname, port, backend, proxy)
             target_scans.append((hostname, port, results, error))
 
         # Output — same schema regardless of --url or --url-file

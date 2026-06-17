@@ -172,13 +172,16 @@ python3 ssl_checker.py --url https://api.example.com:8443
 python3 ssl_checker.py --url-file targets.txt
 ```
 
-`targets.txt` format — one entry per line, `#` for comments:
+`targets.txt` format — one entry per line, `#` for comments, optional per-target proxy:
 ```
-# production services
+# host[:port] [proxy_url]
 api.example.com:443
 auth.example.com:8443
-https://internal.corp.com:4443
+# route this one through a different proxy
+internal.corp.com:443 http://proxy2.corp.com:8080
 ```
+
+Per-target proxy overrides `--proxy` for that line only. Targets with no proxy column use `--proxy` if supplied, or connect directly.
 
 ### Output Formats
 
@@ -209,12 +212,19 @@ The `--backend auto` mode (default) selects nmap automatically when it is instal
 ### Proxy Support
 
 ```bash
-# HTTP CONNECT proxy — works with both nmap and openssl backends
+# Global proxy — applies to all targets
 python3 ssl_checker.py --url example.com --proxy http://proxy.corp.com:8080
-python3 ssl_checker.py --url example.com --proxy http://10.0.0.1:443
+python3 ssl_checker.py --url-file targets.txt --proxy http://10.0.0.1:443
+
+# Per-target proxy in the url-file (overrides --proxy for that line)
+# targets.txt:
+#   api.corp.com:443 http://proxy1.corp.com:8080
+#   other.corp.com   http://proxy2.corp.com:443
+#   public.example.com                            ← uses --proxy or direct
+python3 ssl_checker.py --url-file targets.txt --json > report.json
 ```
 
-Both backends support HTTP CONNECT proxies. The nmap backend passes the proxy via `--proxies`; the openssl backend via `-proxy` to `s_client`.
+Both backends support HTTP CONNECT proxies. The nmap backend passes the proxy via `--proxies`; the openssl backend via `-proxy` to `s_client`. Per-target proxy takes precedence over `--proxy`.
 
 ### Regulatory Compliance Standards
 
