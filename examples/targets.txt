@@ -1,0 +1,30 @@
+# tlsaudit - target list example
+#
+# Format:  host[:port]  [proxy=true|proxy=false]
+#
+#   host[:port]    Hostname, host:port, or full URL. Port defaults to 443.
+#   proxy=true     Route this target through --proxy (default when omitted).
+#   proxy=false    Bypass --proxy for this target; connect directly.
+#
+# Blank lines and lines starting with # are ignored.
+# The proxy URL itself is set at runtime with --proxy.
+
+# ---------------------------------------------------------------------------
+# Use proxy (explicit or by default when --proxy is set)
+# ---------------------------------------------------------------------------
+api.internal.example.com:443
+auth.internal.example.com:443   proxy=true
+legacy.dmz.example.com:8443     proxy=true
+
+# ---------------------------------------------------------------------------
+# Bypass proxy — connect directly even when --proxy is set
+# ---------------------------------------------------------------------------
+public-api.example.com          proxy=false
+cloudflare.com                  proxy=false
+github.com                      proxy=false
+
+# ---------------------------------------------------------------------------
+# Non-standard ports and full URLs
+# ---------------------------------------------------------------------------
+example.com:8443
+https://api.example.com:4443

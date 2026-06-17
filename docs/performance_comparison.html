@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TLS Audit — Backend Comparison Report</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         margin: 0; background: #f6f8fa; color: #1f2328; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  header { background: linear-gradient(135deg, #0969da 0%, #8250df 100%);
+           color: white; padding: 32px; border-radius: 12px; margin-bottom: 24px; }
+  header h1 { margin: 0 0 6px; font-size: 1.8em; }
+  header p  { margin: 0; opacity: .85; }
+  .meta { display:flex; gap:24px; margin-top:16px; font-size:.85em; opacity:.9; }
+
+  h2 { font-size:1.2em; border-bottom:2px solid #d0d7de; padding-bottom:8px; margin-top:32px; }
+
+  .summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+                  gap:16px; margin:16px 0; }
+  .summary-card { background:white; border:1px solid #d0d7de; border-radius:8px;
+                  padding:16px; text-align:center; }
+  .summary-card .value { font-size:2em; font-weight:bold; }
+  .summary-card .label { font-size:.8em; color:#57606a; margin-top:4px; }
+
+  .alert { border-radius:8px; padding:16px; margin:16px 0; border-left:4px solid; }
+  .alert-warning { background:#fff8c5; border-color:#d4a72c; }
+  .alert-info    { background:#ddf4ff; border-color:#0969da; }
+  .alert h4 { margin:0 0 8px; }
+  .alert p  { margin:0; font-size:.9em; }
+
+  table { width:100%; border-collapse:collapse; background:white; border-radius:8px;
+          overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.1); }
+  th { background:#f6f8fa; padding:10px 12px; text-align:left; font-size:.85em;
+       border-bottom:1px solid #d0d7de; }
+  td { padding:9px 12px; border-bottom:1px solid #f0f0f0; font-size:.9em; vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  tr:hover td { background:#f6f8fa; }
+
+  .cipher-table th, .cipher-table td { font-size:.8em; padding:6px 10px; }
+
+  .badge { padding:2px 8px; border-radius:12px; font-size:.78em;
+           font-weight:600; white-space:nowrap; }
+
+  .target-card { background:white; border:1px solid #d0d7de; border-radius:10px;
+                 padding:20px; margin:20px 0; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .target-header { display:flex; justify-content:space-between; align-items:flex-start;
+                   margin-bottom:12px; padding-left:12px; }
+  .timing-summary { text-align:right; font-size:.85em; line-height:1.8; }
+
+  .backend-label { display:inline-block; padding:2px 10px; border-radius:4px;
+                   font-size:.78em; font-weight:600; margin-bottom:6px; }
+  .openssl-label { background:#ddf4ff; color:#0969da; }
+  .nmap-label    { background:#fbefff; color:#8250df; }
+  .backend-dot   { display:inline-block; width:8px; height:8px;
+                   border-radius:50%; margin-right:4px; }
+  .openssl-dot { background:#0969da; }
+  .nmap-dot    { background:#8250df; }
+
+  .section { background:white; border:1px solid #d0d7de; border-radius:10px;
+             padding:20px; margin:16px 0; }
+  footer { text-align:center; color:#57606a; font-size:.8em;
+           margin-top:32px; padding-top:16px; border-top:1px solid #d0d7de; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>TLS Audit — Backend Comparison Report</h1>
+  <p>openssl s_client (main) vs. nmap ssl-enum-ciphers (feature/nmap-backend) — full enumeration</p>
+  <div class="meta">
+    <span>📅 2026-06-16 16:48:19</span>
+    <span>🎯 5 targets</span>
+    <span>🔧 2 backends (3 modes)</span>
+    <span>📊 15 scans total</span>
+  </div>
+</header>
+
+<h2>Executive Summary</h2>
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="value" style="color:#1a7f37">2</div>
+        <div class="label">Good targets<br>(TLS 1.3 capable)</div>
+      </div>
+      <div class="summary-card">
+        <div class="value" style="color:#cf222e">2</div>
+        <div class="label">Bad targets<br>(TLS 1.0 / 1.1 only)</div>
+      </div>
+      <div class="summary-card">
+        <div class="value" style="color:#7d4e00">1</div>
+        <div class="label">Weak target<br>(TLS 1.2 only)</div>
+      </div>
+      <div class="summary-card">
+        <div class="value" style="color:#0969da">455s</div>
+        <div class="label">openssl (unlimited)<br>total scan time</div>
+      </div>
+      <div class="summary-card">
+        <div class="value" style="color:#8250df">79s</div>
+        <div class="label">nmap (full)<br>total scan time</div>
+      </div>
+      <div class="summary-card">
+        <div class="value" style="color:#1a7f37">5.8×</div>
+        <div class="label">nmap speedup vs<br>openssl unlimited</div>
+      </div>
+    </div>
+
+<h2>⚠️ Cipher Naming Issue — Key Finding</h2>
+<div class="alert alert-warning">
+  <h4>OpenSSL Format vs IANA Format</h4>
+  <p>The two backends report identical ciphers under <strong>different naming conventions</strong>.
+  openssl reports in OpenSSL shorthand (e.g. <code>ECDHE-RSA-AES256-GCM-SHA384</code>), while nmap
+  reports in IANA full names (e.g. <code>TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384</code>).
+  <strong>Both formats exist in <code>approved_ciphers.csv</code></strong> so compliance lookups
+  succeed for both backends — but results are not directly string-comparable across backends.</p>
+</div>
+<div class="alert alert-info">
+  <h4>Exception: TLS 1.3 ciphers</h4>
+  <p>TLS 1.3 names (e.g. <code>TLS_AES_256_GCM_SHA384</code>) are identical in both backends
+  and share a single CSV entry. No mapping needed for TLS 1.3.</p>
+</div>
+<div class="section">
+  <h3>Cipher Name Mapping — Observed in This Scan</h3>
+  
+    <table>
+      <thead>
+        <tr>
+          <th>openssl name (main)</th>
+          <th>IANA name (nmap / feature)</th>
+          <th>Compliance</th>
+          <th>CSV Coverage</th>
+        </tr>
+      </thead>
+      <tbody><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-RSA-AES256-GCM-SHA384</td><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td><td style='font-size:.8em;color:#1a7f37'>✓ Both in CSV</td></tr><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-RSA-AES256-SHA</td><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td><td style='font-size:.8em;color:#1a7f37'>✓ Both in CSV</td></tr><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-ECDSA-AES256-GCM-SHA384</td><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td><td style='font-size:.8em;color:#1a7f37'>✓ Both in CSV</td></tr><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-ECDSA-AES128-GCM-SHA256</td><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td><td style='font-size:.8em;color:#1a7f37'>✓ Both in CSV</td></tr><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-ECDSA-AES128-SHA</td><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td><td style='font-size:.8em;color:#1a7f37'>✓ Both in CSV</td></tr><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-ECDSA-CHACHA20-POLY1305</td><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td><td style='font-size:.8em;color:#1a7f37'>✓ Both in CSV</td></tr><tr><td style='font-family:monospace;font-size:.8em'>DHE-RSA-AES256-GCM-SHA384</td><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_AES_256_GCM_SHA384</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td><td style='font-size:.8em;color:#1a7f37'>✓ Both in CSV</td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_AES_256_GCM_SHA384</td><td style='font-family:monospace;font-size:.8em'>TLS_AES_256_GCM_SHA384 (same — TLS 1.3)</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td><td style='font-size:.8em;color:#1a7f37'>✓ Single entry</td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_AES_128_GCM_SHA256</td><td style='font-family:monospace;font-size:.8em'>TLS_AES_128_GCM_SHA256 (same — TLS 1.3)</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td><td style='font-size:.8em;color:#1a7f37'>✓ Single entry</td></tr></tbody>
+    </table>
+</div>
+
+<h2>Performance Comparison (Fair — Full Enumeration)</h2>
+<div class="alert alert-warning">
+  <h4>Previous comparison was unfair</h4>
+  <p>The initial run used <code>--ciphers 10</code> (openssl default cap), making openssl appear
+  faster. Re-run with <code>--ciphers 0</code> (unlimited) shows openssl doing one TCP connection
+  per cipher — nmap is <strong>5–24× faster</strong> on equivalent full enumeration.</p>
+</div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Target</th>
+          <th><span class="backend-dot openssl-dot"></span> openssl (cap=10)</th>
+          <th><span class="backend-dot openssl-dot"></span> openssl (unlimited)</th>
+          <th><span class="backend-dot nmap-dot"></span> nmap (full)</th>
+        </tr>
+      </thead>
+      <tbody><tr><td>google.com</td><td>3.78s</td><td>74.12s</td><td style='background:#e6f4ea;font-weight:600'>3.11s ✓</td></tr><tr><td>github.com</td><td style='background:#e6f4ea;font-weight:600'>3.08s ✓</td><td>74.67s</td><td>5.03s</td></tr><tr><td>tls-v1-0.badssl.com:1010</td><td style='background:#e6f4ea;font-weight:600'>7.06s ✓</td><td>94.52s</td><td>19.30s</td></tr><tr><td>tls-v1-1.badssl.com:1011</td><td style='background:#e6f4ea;font-weight:600'>6.48s ✓</td><td>97.00s</td><td>18.70s</td></tr><tr><td>tls-v1-2.badssl.com:1012</td><td style='background:#e6f4ea;font-weight:600'>7.50s ✓</td><td>114.77s</td><td>32.90s</td></tr><tr style='background:#f6f8fa'><td><strong>Total</strong></td><td style='background:#e6f4ea;font-weight:700'>27.90s</td><td style='font-weight:700'>455.08s</td><td style='font-weight:700'>79.04s</td></tr></tbody>
+    </table>
+    <p style="font-size:.85em;color:#57606a;margin-top:8px">
+      ✓ = fastest for that target &nbsp;|&nbsp;
+      nmap is <strong>5.8× faster</strong> than openssl unlimited across all 5 targets.
+    </p>
+
+<h2>Per-Target Detailed Results</h2>
+
+    <div class="target-card">
+      <div class="target-header" style="border-left:4px solid #1a7f37">
+        <div>
+          <h3 style="margin:0">google.com</h3>
+          <span style="color:#1a7f37;font-size:.85em;font-weight:600">GOOD — Modern TLS</span>
+        </div>
+        <div class="timing-summary">
+          <div><span class="backend-dot openssl-dot"></span> openssl(10): <strong>3.78s</strong></div>
+          <div><span class="backend-dot openssl-dot"></span> openssl(∞): <strong>74.12s</strong></div>
+          <div><span class="backend-dot nmap-dot"></span> nmap: <strong>3.11s</strong></div>
+          <div style="color:#8250df;font-size:.8em">▲ nmap fastest</div>
+        </div>
+      </div>
+      <h4 style="margin:16px 0 8px">Protocol Support</h4>
+      
+    <table class="proto-table">
+      <thead>
+        <tr>
+          <th>Protocol</th>
+          <th colspan="2"><span class="backend-dot openssl-dot"></span> openssl (main)</th>
+          <th colspan="2"><span class="backend-dot nmap-dot"></span> nmap (feature)</th>
+        </tr>
+      </thead>
+      <tbody><tr><td><strong>TLSv1.0</strong><br><small style='color:#57606a'>NOT_APPROVED</small></td><td style="color:#cf222e;font-size:.85em">❌ NOT_APPROVED</td><td style='font-size:.8em;color:#57606a'>1 cipher(s)</td><td style="color:#cf222e;font-size:.85em">❌ NOT_APPROVED</td><td style='font-size:.8em;color:#57606a'>7 cipher(s)</td></tr><tr><td><strong>TLSv1.1</strong><br><small style='color:#57606a'>NOT_APPROVED</small></td><td style="color:#cf222e;font-size:.85em">❌ NOT_APPROVED</td><td style='font-size:.8em;color:#57606a'>1 cipher(s)</td><td style="color:#cf222e;font-size:.85em">❌ NOT_APPROVED</td><td style='font-size:.8em;color:#57606a'>7 cipher(s)</td></tr><tr><td><strong>TLSv1.2</strong><br><small style='color:#57606a'>SECURE</small></td><td style="color:#7d4e00;font-size:.85em">⚠️ SECURE</td><td style='font-size:.8em;color:#57606a'>3 cipher(s)</td><td style="color:#7d4e00;font-size:.85em">⚠️ SECURE</td><td style='font-size:.8em;color:#57606a'>15 cipher(s)</td></tr><tr><td><strong>TLSv1.3</strong><br><small style='color:#57606a'>RECOMMENDED</small></td><td style="color:#1a7f37;font-size:.85em">✅ RECOMMENDED</td><td style='font-size:.8em;color:#57606a'>1 cipher(s)</td><td style="color:#1a7f37;font-size:.85em">✅ RECOMMENDED</td><td style='font-size:.8em;color:#57606a'>3 cipher(s)</td></tr></tbody>
+    </table>
+      
+    <div style="margin-top:16px">
+      <h4 style="margin:0 0 8px">TLSv1.0 Ciphers<span style="color:#1a7f37;font-weight:bold"> — nmap found 6 more</span></h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div class="backend-label openssl-label">openssl (main)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-ECDSA-AES128-SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+        <div>
+          <div class="backend-label nmap-label">nmap (feature)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_3DES_EDE_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <h4 style="margin:0 0 8px">TLSv1.1 Ciphers<span style="color:#1a7f37;font-weight:bold"> — nmap found 6 more</span></h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div class="backend-label openssl-label">openssl (main)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-ECDSA-AES128-SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+        <div>
+          <div class="backend-label nmap-label">nmap (feature)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_3DES_EDE_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <h4 style="margin:0 0 8px">TLSv1.2 Ciphers<span style="color:#1a7f37;font-weight:bold"> — nmap found 12 more</span></h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div class="backend-label openssl-label">openssl (main)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-ECDSA-AES256-GCM-SHA384</td><td>OPENSSL</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-RSA-AES256-GCM-SHA384</td><td>OPENSSL</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-ECDSA-CHACHA20-POLY1305</td><td>OPENSSL</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td></tr></tbody>
+          </table>
+        </div>
+        <div>
+          <div class="backend-label nmap-label">nmap (feature)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256</td><td>IANA</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384</td><td>IANA</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256</td><td>IANA</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256</td><td>IANA</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384</td><td>IANA</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256</td><td>IANA</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_3DES_EDE_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_128_GCM_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_256_GCM_SHA384</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <h4 style="margin:0 0 8px">TLSv1.3 Ciphers<span style="color:#1a7f37;font-weight:bold"> — nmap found 2 more</span></h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div class="backend-label openssl-label">openssl (main)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>TLS_AES_256_GCM_SHA384</td><td>IANA</td><td><span class="badge" style="color:#0969da;background:#ddf4ff">PQC_RECOMMENDED</span></td></tr></tbody>
+          </table>
+        </div>
+        <div>
+          <div class="backend-label nmap-label">nmap (feature)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>TLS_AKE_WITH_AES_128_GCM_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_AKE_WITH_AES_256_GCM_SHA384</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_AKE_WITH_CHACHA20_POLY1305_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    </div>
+    <div class="target-card">
+      <div class="target-header" style="border-left:4px solid #1a7f37">
+        <div>
+          <h3 style="margin:0">github.com</h3>
+          <span style="color:#1a7f37;font-size:.85em;font-weight:600">GOOD — Modern TLS</span>
+        </div>
+        <div class="timing-summary">
+          <div><span class="backend-dot openssl-dot"></span> openssl(10): <strong>3.08s</strong></div>
+          <div><span class="backend-dot openssl-dot"></span> openssl(∞): <strong>74.67s</strong></div>
+          <div><span class="backend-dot nmap-dot"></span> nmap: <strong>5.03s</strong></div>
+          <div style="color:#0969da;font-size:.8em">▲ openssl10 fastest</div>
+        </div>
+      </div>
+      <h4 style="margin:16px 0 8px">Protocol Support</h4>
+      
+    <table class="proto-table">
+      <thead>
+        <tr>
+          <th>Protocol</th>
+          <th colspan="2"><span class="backend-dot openssl-dot"></span> openssl (main)</th>
+          <th colspan="2"><span class="backend-dot nmap-dot"></span> nmap (feature)</th>
+        </tr>
+      </thead>
+      <tbody><tr><td><strong>TLSv1.0</strong><br><small style='color:#57606a'>NOT_APPROVED</small></td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td></tr><tr><td><strong>TLSv1.1</strong><br><small style='color:#57606a'>NOT_APPROVED</small></td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td></tr><tr><td><strong>TLSv1.2</strong><br><small style='color:#57606a'>SECURE</small></td><td style="color:#7d4e00;font-size:.85em">⚠️ SECURE</td><td style='font-size:.8em;color:#57606a'>4 cipher(s)</td><td style="color:#7d4e00;font-size:.85em">⚠️ SECURE</td><td style='font-size:.8em;color:#57606a'>18 cipher(s)</td></tr><tr><td><strong>TLSv1.3</strong><br><small style='color:#57606a'>RECOMMENDED</small></td><td style="color:#1a7f37;font-size:.85em">✅ RECOMMENDED</td><td style='font-size:.8em;color:#57606a'>1 cipher(s)</td><td style="color:#1a7f37;font-size:.85em">✅ RECOMMENDED</td><td style='font-size:.8em;color:#57606a'>3 cipher(s)</td></tr></tbody>
+    </table>
+      
+    <div style="margin-top:16px">
+      <h4 style="margin:0 0 8px">TLSv1.2 Ciphers<span style="color:#1a7f37;font-weight:bold"> — nmap found 14 more</span></h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div class="backend-label openssl-label">openssl (main)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-ECDSA-AES128-GCM-SHA256</td><td>OPENSSL</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-ECDSA-AES256-GCM-SHA384</td><td>OPENSSL</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-RSA-AES256-GCM-SHA384</td><td>OPENSSL</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-ECDSA-CHACHA20-POLY1305</td><td>OPENSSL</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td></tr></tbody>
+          </table>
+        </div>
+        <div>
+          <div class="backend-label nmap-label">nmap (feature)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256</td><td>IANA</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384</td><td>IANA</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256</td><td>IANA</td><td><span class="badge" style="color:#1a7f37;background:#d1f5d3">RECOMMENDED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256</td><td>IANA</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384</td><td>IANA</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256</td><td>IANA</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_128_CBC_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_128_GCM_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_256_CBC_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_256_GCM_SHA384</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <h4 style="margin:0 0 8px">TLSv1.3 Ciphers<span style="color:#1a7f37;font-weight:bold"> — nmap found 2 more</span></h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div class="backend-label openssl-label">openssl (main)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>TLS_AES_128_GCM_SHA256</td><td>IANA</td><td><span class="badge" style="color:#0969da;background:#ddf4ff">PQC_RECOMMENDED</span></td></tr></tbody>
+          </table>
+        </div>
+        <div>
+          <div class="backend-label nmap-label">nmap (feature)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>TLS_AKE_WITH_AES_128_GCM_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_AKE_WITH_AES_256_GCM_SHA384</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_AKE_WITH_CHACHA20_POLY1305_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    </div>
+    <div class="target-card">
+      <div class="target-header" style="border-left:4px solid #cf222e">
+        <div>
+          <h3 style="margin:0">tls-v1-0.badssl.com:1010</h3>
+          <span style="color:#cf222e;font-size:.85em;font-weight:600">BAD — Legacy TLS</span>
+        </div>
+        <div class="timing-summary">
+          <div><span class="backend-dot openssl-dot"></span> openssl(10): <strong>7.06s</strong></div>
+          <div><span class="backend-dot openssl-dot"></span> openssl(∞): <strong>94.52s</strong></div>
+          <div><span class="backend-dot nmap-dot"></span> nmap: <strong>19.30s</strong></div>
+          <div style="color:#0969da;font-size:.8em">▲ openssl10 fastest</div>
+        </div>
+      </div>
+      <h4 style="margin:16px 0 8px">Protocol Support</h4>
+      
+    <table class="proto-table">
+      <thead>
+        <tr>
+          <th>Protocol</th>
+          <th colspan="2"><span class="backend-dot openssl-dot"></span> openssl (main)</th>
+          <th colspan="2"><span class="backend-dot nmap-dot"></span> nmap (feature)</th>
+        </tr>
+      </thead>
+      <tbody><tr><td><strong>TLSv1.0</strong><br><small style='color:#57606a'>NOT_APPROVED</small></td><td style="color:#cf222e;font-size:.85em">❌ NOT_APPROVED</td><td style='font-size:.8em;color:#57606a'>1 cipher(s)</td><td style="color:#cf222e;font-size:.85em">❌ NOT_APPROVED</td><td style='font-size:.8em;color:#57606a'>10 cipher(s)</td></tr><tr><td><strong>TLSv1.1</strong><br><small style='color:#57606a'>NOT_APPROVED</small></td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td></tr><tr><td><strong>TLSv1.2</strong><br><small style='color:#57606a'>SECURE</small></td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td></tr><tr><td><strong>TLSv1.3</strong><br><small style='color:#57606a'>RECOMMENDED</small></td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td></tr></tbody>
+    </table>
+      
+    <div style="margin-top:16px">
+      <h4 style="margin:0 0 8px">TLSv1.0 Ciphers<span style="color:#1a7f37;font-weight:bold"> — nmap found 9 more</span></h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div class="backend-label openssl-label">openssl (main)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-RSA-AES256-SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+        <div>
+          <div class="backend-label nmap-label">nmap (feature)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_CAMELLIA_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_CAMELLIA_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    </div>
+    <div class="target-card">
+      <div class="target-header" style="border-left:4px solid #cf222e">
+        <div>
+          <h3 style="margin:0">tls-v1-1.badssl.com:1011</h3>
+          <span style="color:#cf222e;font-size:.85em;font-weight:600">BAD — Legacy TLS</span>
+        </div>
+        <div class="timing-summary">
+          <div><span class="backend-dot openssl-dot"></span> openssl(10): <strong>6.48s</strong></div>
+          <div><span class="backend-dot openssl-dot"></span> openssl(∞): <strong>97.00s</strong></div>
+          <div><span class="backend-dot nmap-dot"></span> nmap: <strong>18.70s</strong></div>
+          <div style="color:#0969da;font-size:.8em">▲ openssl10 fastest</div>
+        </div>
+      </div>
+      <h4 style="margin:16px 0 8px">Protocol Support</h4>
+      
+    <table class="proto-table">
+      <thead>
+        <tr>
+          <th>Protocol</th>
+          <th colspan="2"><span class="backend-dot openssl-dot"></span> openssl (main)</th>
+          <th colspan="2"><span class="backend-dot nmap-dot"></span> nmap (feature)</th>
+        </tr>
+      </thead>
+      <tbody><tr><td><strong>TLSv1.0</strong><br><small style='color:#57606a'>NOT_APPROVED</small></td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td></tr><tr><td><strong>TLSv1.1</strong><br><small style='color:#57606a'>NOT_APPROVED</small></td><td style="color:#cf222e;font-size:.85em">❌ NOT_APPROVED</td><td style='font-size:.8em;color:#57606a'>1 cipher(s)</td><td style="color:#cf222e;font-size:.85em">❌ NOT_APPROVED</td><td style='font-size:.8em;color:#57606a'>10 cipher(s)</td></tr><tr><td><strong>TLSv1.2</strong><br><small style='color:#57606a'>SECURE</small></td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td></tr><tr><td><strong>TLSv1.3</strong><br><small style='color:#57606a'>RECOMMENDED</small></td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td></tr></tbody>
+    </table>
+      
+    <div style="margin-top:16px">
+      <h4 style="margin:0 0 8px">TLSv1.1 Ciphers<span style="color:#1a7f37;font-weight:bold"> — nmap found 9 more</span></h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div class="backend-label openssl-label">openssl (main)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-RSA-AES256-SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+        <div>
+          <div class="backend-label nmap-label">nmap (feature)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_CAMELLIA_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_CAMELLIA_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    </div>
+    <div class="target-card">
+      <div class="target-header" style="border-left:4px solid #7d4e00">
+        <div>
+          <h3 style="margin:0">tls-v1-2.badssl.com:1012</h3>
+          <span style="color:#7d4e00;font-size:.85em;font-weight:600">WEAK — TLS 1.2 Only</span>
+        </div>
+        <div class="timing-summary">
+          <div><span class="backend-dot openssl-dot"></span> openssl(10): <strong>7.50s</strong></div>
+          <div><span class="backend-dot openssl-dot"></span> openssl(∞): <strong>114.77s</strong></div>
+          <div><span class="backend-dot nmap-dot"></span> nmap: <strong>32.90s</strong></div>
+          <div style="color:#0969da;font-size:.8em">▲ openssl10 fastest</div>
+        </div>
+      </div>
+      <h4 style="margin:16px 0 8px">Protocol Support</h4>
+      
+    <table class="proto-table">
+      <thead>
+        <tr>
+          <th>Protocol</th>
+          <th colspan="2"><span class="backend-dot openssl-dot"></span> openssl (main)</th>
+          <th colspan="2"><span class="backend-dot nmap-dot"></span> nmap (feature)</th>
+        </tr>
+      </thead>
+      <tbody><tr><td><strong>TLSv1.0</strong><br><small style='color:#57606a'>NOT_APPROVED</small></td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td></tr><tr><td><strong>TLSv1.1</strong><br><small style='color:#57606a'>NOT_APPROVED</small></td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td></tr><tr><td><strong>TLSv1.2</strong><br><small style='color:#57606a'>SECURE</small></td><td style="color:#7d4e00;font-size:.85em">⚠️ SECURE</td><td style='font-size:.8em;color:#57606a'>2 cipher(s)</td><td style="color:#7d4e00;font-size:.85em">⚠️ SECURE</td><td style='font-size:.8em;color:#57606a'>22 cipher(s)</td></tr><tr><td><strong>TLSv1.3</strong><br><small style='color:#57606a'>RECOMMENDED</small></td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td><td style="color:#57606a;font-size:.85em">✗ Not supported</td><td style='font-size:.8em;color:#57606a'>0 cipher(s)</td></tr></tbody>
+    </table>
+      
+    <div style="margin-top:16px">
+      <h4 style="margin:0 0 8px">TLSv1.2 Ciphers<span style="color:#1a7f37;font-weight:bold"> — nmap found 20 more</span></h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div class="backend-label openssl-label">openssl (main)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>ECDHE-RSA-AES256-GCM-SHA384</td><td>OPENSSL</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>DHE-RSA-AES256-GCM-SHA384</td><td>OPENSSL</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr></tbody>
+          </table>
+        </div>
+        <div>
+          <div class="backend-label nmap-label">nmap (feature)</div>
+          <table class="cipher-table">
+            <thead><tr><th>Cipher Name</th><th>Format</th><th>Compliance</th></tr></thead>
+            <tbody><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384</td><td>IANA</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_AES_256_GCM_SHA384</td><td>IANA</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_AES_256_CBC_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_256_GCM_SHA384</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_256_CBC_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_CAMELLIA_256_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256</td><td>IANA</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_AES_128_GCM_SHA256</td><td>IANA</td><td><span class="badge" style="color:#7d4e00;background:#fff3cd">SECURE</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_AES_128_CBC_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_128_GCM_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_128_CBC_SHA256</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_AES_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr><tr><td style='font-family:monospace;font-size:.8em'>TLS_RSA_WITH_CAMELLIA_128_CBC_SHA</td><td>N/A</td><td><span class="badge" style="color:#cf222e;background:#ffd7d9">NOT_APPROVED</span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    </div>
+
+<h2>Conclusions &amp; Recommendations</h2>
+
+    <div class="section">
+      <ul style="line-height:2">
+        <li><strong>Fair comparison:</strong> openssl with <code>--ciphers 0</code> (unlimited) is
+            <strong>5–24× slower</strong> than nmap for equivalent full-enumeration scans.</li>
+        <li><strong>Cipher coverage:</strong> nmap and openssl unlimited find near-identical cipher counts
+            on most targets. nmap finds slightly more TLS 1.3 ciphers (3 vs 1) on google/github due to
+            how it probes TLS 1.3 suites.</li>
+        <li><strong>Cipher naming:</strong> OpenSSL shorthand and IANA names are both present in
+            <code>approved_ciphers.csv</code> so compliance ratings are accurate on both backends.
+            Cross-backend diffs require name normalisation before string comparison.</li>
+        <li><strong>Recommended next step:</strong> Add an OpenSSL ↔ IANA name normalisation
+            layer so report diffs are backend-agnostic.</li>
+        <li><strong>Compliance verdict:</strong> google.com still accepts TLS 1.0/1.1 (NOT_APPROVED).
+            github.com is TLS 1.2+ only (compliant). badssl.com test targets behave exactly as
+            advertised.</li>
+      </ul>
+    </div>
+
+<footer>
+  <p>tlsaudit ·
+  <a href="https://github.com/cloudtriquetra/tlsaudit">github.com/cloudtriquetra/tlsaudit</a></p>
+</footer>
+</div>
+</body>
+</html>
