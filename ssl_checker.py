@@ -406,6 +406,13 @@ def get_available_ciphers(tls_flag):
         return []
 
 
+def _openssl_proxy_arg(proxy_url):
+    """Return proxy in host:port form for openssl -proxy (strips http:// scheme)."""
+    if proxy_url and '://' in proxy_url:
+        return proxy_url.split('://', 1)[1]
+    return proxy_url
+
+
 def find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers=None, proxy=None):
     """Find all supported ciphers for a TLS version by iteratively testing."""
     supported_ciphers = []
@@ -436,7 +443,7 @@ def find_supported_ciphers(hostname, port, tls_name, tls_flag, max_ciphers=None,
             ]
 
             if proxy:
-                cmd.extend(['-proxy', proxy])
+                cmd.extend(['-proxy', _openssl_proxy_arg(proxy)])
 
             result = subprocess.run(
                 cmd,
@@ -491,7 +498,7 @@ def check_tls_version(hostname, port, tls_name, tls_flag, proxy=None):
         ]
 
         if proxy:
-            cmd.extend(['-proxy', proxy])
+            cmd.extend(['-proxy', _openssl_proxy_arg(proxy)])
         if tls_flag in ['-tls1', '-tls1_1']:
             cmd.extend(['-cipher', 'DEFAULT:@SECLEVEL=0'])
 
