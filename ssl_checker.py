@@ -834,7 +834,7 @@ def _env_proxy_for(hostname):
         return None
     no_proxy = os.environ.get('NO_PROXY') or os.environ.get('no_proxy') or ''
     hostname_lower = hostname.lower()
-    for pattern in (p.strip().lower() for p in no_proxy.split(',') if p.strip()):
+    for pattern in (p.strip().lstrip('.').lower() for p in no_proxy.split(',') if p.strip()):
         if pattern == '*' or hostname_lower == pattern or hostname_lower.endswith('.' + pattern):
             return None
     return proxy
