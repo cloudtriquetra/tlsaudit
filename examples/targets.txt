@@ -1,27 +1,44 @@
-# TLS Audit - example target list
-# Format: host[:port] [proxy_url]
+# tlsaudit - target list example
 #
-# - host[:port]  required  hostname or URL; port defaults to 443
-# - proxy_url    optional  per-target HTTP CONNECT proxy; overrides --proxy
+# Format:  host[:port]  [proxy_url]
 #
-# Lines starting with # and blank lines are ignored.
+#   host[:port]   Hostname, host:port, or full URL. Port defaults to 443.
+#   proxy_url     Optional. HTTP CONNECT proxy for this target only.
+#                 Overrides the global --proxy flag.
+#                 Omit to use --proxy, or connect directly if --proxy not set.
+#
+# Blank lines and lines starting with # are ignored.
 
-# No proxy (uses global --proxy if supplied, otherwise direct)
+# ---------------------------------------------------------------------------
+# Public endpoints — direct connection
+# ---------------------------------------------------------------------------
 google.com
 github.com
-cloudflare.com
+cloudflare.com:443
 
-# Explicit ports
-google.com:443
-github.com:443
+# ---------------------------------------------------------------------------
+# Non-standard HTTPS ports
+# ---------------------------------------------------------------------------
+example.com:8443
+api.example.com:4443
 
-# Full URLs
+# ---------------------------------------------------------------------------
+# Full URLs (scheme and port parsed automatically)
+# ---------------------------------------------------------------------------
 https://example.com
+https://api.example.com:8443
 
-# Per-target proxy (overrides --proxy for this line only)
-api.internal.corp.com:443 http://proxy1.corp.com:8080
-legacy.internal.corp.com:8443 http://proxy2.corp.com:443
+# ---------------------------------------------------------------------------
+# Internal services — per-target proxy
+# Useful when different segments route through different proxies
+# ---------------------------------------------------------------------------
+api.internal.example.com:443    http://proxy1.corp.com:8080
+auth.internal.example.com:443   http://proxy1.corp.com:8080
+legacy.dmz.example.com:8443     http://proxy2.corp.com:443
 
-# Non-standard ports (badssl.com test endpoints)
-tls-v1-2.badssl.com:1012
-tls-v1-0.badssl.com:1010
+# ---------------------------------------------------------------------------
+# Mixed: some targets need a proxy, some do not
+# Global --proxy (if set) applies to lines with no proxy column
+# ---------------------------------------------------------------------------
+public-api.example.com
+restricted.example.com:443      http://restricted-proxy.corp.com:3128
