@@ -168,19 +168,106 @@ python3 ssl_checker.py --url example.com --port 8443
 # Scan with full URL
 python3 ssl_checker.py --url https://api.example.com:8443
 
-# Scan multiple targets from a file (one URL or host:port per line)
+# Scan multiple targets from a file — see Batch Scanning section below
 python3 ssl_checker.py --url-file targets.txt
 ```
 
-`targets.txt` format — one entry per line, optional `proxy=true`/`proxy=false` flag:
-```
-# host[:port]  [proxy=true|proxy=false]
-api.example.com:443                    # use --proxy (default)
-auth.example.com:8443   proxy=true     # use --proxy (explicit)
-public.example.com      proxy=false    # bypass --proxy, connect directly
+### Batch Scanning
+
+Scan multiple targets in one run using `--url-file`:
+
+```bash
+python3 ssl_checker.py --url-file targets.txt
+python3 ssl_checker.py --url-file targets.txt --json > report.json
+python3 ssl_checker.py --url-file targets.txt --proxy http://proxy.corp.com:8080 --json > report.json
 ```
 
-The proxy URL is supplied at runtime with `--proxy`. Targets with no flag default to `proxy=true` (use `--proxy` if set).
+**File format** (`targets.txt`) — one entry per line:
+
+```
+# host[:port]  [proxy=true|proxy=false]
+#
+# - host[:port]     required. Hostname, host:port, or full URL. Port defaults to 443.
+# - proxy=true      optional. Route through --proxy (default when omitted).
+# - proxy=false     optional. Bypass --proxy; always connect directly.
+# Lines starting with # and blank lines are ignored.
+
+# Internal services — routed through --proxy
+api.corp.com:443
+auth.corp.com:443       proxy=true
+
+# Public endpoints — always direct even when --proxy is set
+cdn.example.com         proxy=false
+github.com              proxy=false
+
+# Non-standard ports
+internal.corp.com:8443
+https://api.corp.com:4443
+```
+
+See [`examples/targets.txt`](examples/targets.txt) for a fully annotated example.
+
+**Batch output — text:**
+
+Each target prints its own result block, followed by a consolidated summary:
+
+```
+======================================================================
+TLS Audit Results for: api.corp.com:443
+Overall compliance: NON_COMPLIANT
+======================================================================
+...
+
+======================================================================
+SCAN SUMMARY  (3 targets)
+  Compliant:     1
+  Non-compliant: 2
+  Scan errors:   0
+Overall compliance: NON_COMPLIANT
+
+All findings:
+  - api.corp.com:443 — TLSv1.0 is supported (deprecated protocol)
+  - auth.corp.com:443 — NOT_APPROVED cipher on TLSv1.2: TLS_RSA_WITH_AES_128_CBC_SHA
+```
+
+**Batch output — JSON:**
+
+Single report covering all targets (same schema as single `--url` scan):
+
+```json
+{
+  "scan_timestamp": "...",
+  "overall_compliance": "NON_COMPLIANT",
+  "findings": [
+    "api.corp.com:443 — TLSv1.0 is supported (deprecated protocol)"
+  ],
+  "summary": {
+    "targets_total": 3,
+    "targets_compliant": 1,
+    "targets_non_compliant": 2,
+    "targets_error": 0
+  },
+  "targets": [
+    {
+      "hostname": "api.corp.com",
+      "port": 443,
+      "overall_compliance": "NON_COMPLIANT",
+      "findings": ["TLSv1.0 is supported (deprecated protocol)"],
+      "protocols": { "...": "..." }
+    }
+  ]
+}
+```
+
+**Batch exit codes:**
+
+| Condition | Exit code |
+|---|---|
+| All targets COMPLIANT | 0 |
+| Any target NON_COMPLIANT | 2 |
+| All targets scan error, none NON_COMPLIANT | 1 |
+
+NON_COMPLIANT takes precedence over scan errors.
 
 ### Output Formats
 
