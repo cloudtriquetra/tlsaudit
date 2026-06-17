@@ -172,16 +172,15 @@ python3 ssl_checker.py --url https://api.example.com:8443
 python3 ssl_checker.py --url-file targets.txt
 ```
 
-`targets.txt` format — one entry per line, `#` for comments, optional per-target proxy:
+`targets.txt` format — one entry per line, optional `true`/`false` proxy flag:
 ```
-# host[:port] [proxy_url]
-api.example.com:443
-auth.example.com:8443
-# route this one through a different proxy
-internal.corp.com:443 http://proxy2.corp.com:8080
+# host[:port]  [true|false]
+api.example.com:443              # use --proxy (default)
+auth.example.com:8443   true     # use --proxy (explicit)
+public.example.com      false    # bypass --proxy, connect directly
 ```
 
-Per-target proxy overrides `--proxy` for that line only. Targets with no proxy column use `--proxy` if supplied, or connect directly.
+The proxy URL is supplied at runtime with `--proxy`. Targets with no flag default to `true` (use `--proxy` if set).
 
 ### Output Formats
 
@@ -212,19 +211,21 @@ The `--backend auto` mode (default) selects nmap automatically when it is instal
 ### Proxy Support
 
 ```bash
-# Global proxy — applies to all targets
+# Single target through a proxy
 python3 ssl_checker.py --url example.com --proxy http://proxy.corp.com:8080
-python3 ssl_checker.py --url-file targets.txt --proxy http://10.0.0.1:443
 
-# Per-target proxy in the url-file (overrides --proxy for that line)
-# targets.txt:
-#   api.corp.com:443 http://proxy1.corp.com:8080
-#   other.corp.com   http://proxy2.corp.com:443
-#   public.example.com                            ← uses --proxy or direct
-python3 ssl_checker.py --url-file targets.txt --json > report.json
+# Batch scan — proxy applies to all targets marked true (or with no flag)
+python3 ssl_checker.py --url-file targets.txt --proxy http://10.0.0.1:443 --json > report.json
 ```
 
-Both backends support HTTP CONNECT proxies. The nmap backend passes the proxy via `--proxies`; the openssl backend via `-proxy` to `s_client`. Per-target proxy takes precedence over `--proxy`.
+In `targets.txt`, each line can opt in or out of the proxy:
+```
+api.internal.corp.com:443          # no flag → uses --proxy
+auth.internal.corp.com:443  true   # explicit → uses --proxy
+public.example.com          false  # bypasses --proxy, connects directly
+```
+
+Both backends support HTTP CONNECT proxies. The nmap backend passes the proxy via `--proxies`; the openssl backend via `-proxy` to `s_client`.
 
 ### Regulatory Compliance Standards
 

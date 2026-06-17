@@ -849,10 +849,11 @@ def _scan_target(hostname, port, backend, proxy):
 
 
 def _parse_url_file(path):
-    """Read scan targets from a file. Returns list of (url, proxy_or_None).
+    """Read scan targets from a file. Returns list of (url, use_proxy).
 
-    Line format:  host[:port]  [proxy_url]
-    The proxy field is optional; when absent the caller's global --proxy applies.
+    Line format:  host[:port]  [true|false]
+    use_proxy=True  → route through the global --proxy (default when omitted)
+    use_proxy=False → connect directly, bypassing --proxy for this target
     Lines starting with # and blank lines are ignored.
     """
     targets = []
@@ -861,10 +862,10 @@ def _parse_url_file(path):
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
-            parts = line.split(None, 1)   # split on first whitespace
+            parts = line.split(None, 1)
             url = parts[0]
-            proxy = parts[1] if len(parts) > 1 else None
-            targets.append((url, proxy))
+            use_proxy = parts[1].strip().lower() != 'false' if len(parts) > 1 else True
+            targets.append((url, use_proxy))
     return targets
 
 
@@ -1149,10 +1150,9 @@ Examples:
                 print("Error: url-file is empty or contains only comments", file=sys.stderr)
                 sys.exit(1)
             raw_urls = []
-            for entry, entry_proxy in raw_entries:
+            for entry, use_proxy in raw_entries:
                 h, dp = extract_hostname_port(entry)
-                # per-target proxy takes precedence over global --proxy
-                effective_proxy = entry_proxy if entry_proxy is not None else args.proxy
+                effective_proxy = args.proxy if use_proxy else None
                 raw_urls.append((h, dp, effective_proxy))
 
         # Run scans
