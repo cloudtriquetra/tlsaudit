@@ -851,9 +851,9 @@ def _scan_target(hostname, port, backend, proxy):
 def _parse_url_file(path):
     """Read scan targets from a file. Returns list of (url, use_proxy).
 
-    Line format:  host[:port]  [true|false]
-    use_proxy=True  → route through the global --proxy (default when omitted)
-    use_proxy=False → connect directly, bypassing --proxy for this target
+    Line format:  host[:port]  [proxy=true|proxy=false]
+    proxy=true  → route through the global --proxy (default when omitted)
+    proxy=false → connect directly, bypassing --proxy for this target
     Lines starting with # and blank lines are ignored.
     """
     targets = []
@@ -864,7 +864,11 @@ def _parse_url_file(path):
                 continue
             parts = line.split(None, 1)
             url = parts[0]
-            use_proxy = parts[1].strip().lower() != 'false' if len(parts) > 1 else True
+            use_proxy = True
+            if len(parts) > 1:
+                flag = parts[1].strip().lower()
+                if flag == 'proxy=false':
+                    use_proxy = False
             targets.append((url, use_proxy))
     return targets
 

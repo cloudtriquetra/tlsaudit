@@ -172,15 +172,15 @@ python3 ssl_checker.py --url https://api.example.com:8443
 python3 ssl_checker.py --url-file targets.txt
 ```
 
-`targets.txt` format — one entry per line, optional `true`/`false` proxy flag:
+`targets.txt` format — one entry per line, optional `proxy=true`/`proxy=false` flag:
 ```
-# host[:port]  [true|false]
-api.example.com:443              # use --proxy (default)
-auth.example.com:8443   true     # use --proxy (explicit)
-public.example.com      false    # bypass --proxy, connect directly
+# host[:port]  [proxy=true|proxy=false]
+api.example.com:443                    # use --proxy (default)
+auth.example.com:8443   proxy=true     # use --proxy (explicit)
+public.example.com      proxy=false    # bypass --proxy, connect directly
 ```
 
-The proxy URL is supplied at runtime with `--proxy`. Targets with no flag default to `true` (use `--proxy` if set).
+The proxy URL is supplied at runtime with `--proxy`. Targets with no flag default to `proxy=true` (use `--proxy` if set).
 
 ### Output Formats
 
@@ -220,9 +220,9 @@ python3 ssl_checker.py --url-file targets.txt --proxy http://10.0.0.1:443 --json
 
 In `targets.txt`, each line can opt in or out of the proxy:
 ```
-api.internal.corp.com:443          # no flag → uses --proxy
-auth.internal.corp.com:443  true   # explicit → uses --proxy
-public.example.com          false  # bypasses --proxy, connects directly
+api.internal.corp.com:443               # no flag → uses --proxy
+auth.internal.corp.com:443  proxy=true  # explicit → uses --proxy
+public.example.com          proxy=false # bypasses --proxy, connects directly
 ```
 
 Both backends support HTTP CONNECT proxies. The nmap backend passes the proxy via `--proxies`; the openssl backend via `-proxy` to `s_client`.
