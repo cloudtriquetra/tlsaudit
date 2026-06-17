@@ -227,6 +227,15 @@ public.example.com          proxy=false # bypasses --proxy, connects directly
 
 Both backends support HTTP CONNECT proxies. The nmap backend passes the proxy via `--proxies`; the openssl backend via `-proxy` to `s_client`.
 
+**Proxy resolution order (per target):**
+1. `--proxy` flag — always used when set; `NO_PROXY` does not override it
+2. `HTTPS_PROXY` / `HTTP_PROXY` environment variable — used when `--proxy` is not set
+3. Direct connection — when neither flag nor env var is present
+
+`NO_PROXY` / `no_proxy` is respected for env-var proxies: hostnames matching any entry bypass the env proxy. `--proxy` is always applied regardless of `NO_PROXY`.
+
+In `targets.txt`, `proxy=false` forces a direct connection for that target regardless of `--proxy` or env vars.
+
 ### Regulatory Compliance Standards
 
 ```bash

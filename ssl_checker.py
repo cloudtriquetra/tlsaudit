@@ -823,6 +823,37 @@ def _cipher_to_json(cipher_entry, protocol):
     return info
 
 
+def _env_proxy_for(hostname):
+    """Return proxy URL from environment variables for hostname, or None.
+
+    Reads HTTPS_PROXY / HTTP_PROXY (and lowercase variants) in that order.
+    Respects NO_PROXY / no_proxy: returns None when the hostname matches.
+    """
+    proxy = (os.environ.get('HTTPS_PROXY') or
+             os.environ.get('https_proxy') or
+             os.environ.get('HTTP_PROXY') or
+             os.environ.get('http_proxy'))
+    if not proxy:
+        return None
+    no_proxy = os.environ.get('NO_PROXY') or os.environ.get('no_proxy') or ''
+    hostname_lower = hostname.lower()
+    for pattern in (p.strip().lower() for p in no_proxy.split(',') if p.strip()):
+        if pattern == '*' or hostname_lower == pattern or hostname_lower.endswith('.' + pattern):
+            return None
+    return proxy
+
+
+def _resolve_proxy(hostname, explicit_proxy):
+    """Effective proxy for a scan.
+
+    Priority: explicit --proxy flag > HTTPS_PROXY/HTTP_PROXY env var > None.
+    NO_PROXY is applied only to env-var proxies; --proxy always wins.
+    """
+    if explicit_proxy is not None:
+        return explicit_proxy
+    return _env_proxy_for(hostname)
+
+
 def _scan_target(hostname, port, backend, proxy):
     """Run a full TLS scan on one host:port.
 
@@ -1147,7 +1178,7 @@ Examples:
         if args.url:
             hostname, default_port = extract_hostname_port(args.url)
             port = args.port if args.port is not None else default_port
-            raw_urls = [(hostname, port, args.proxy)]
+            raw_urls = [(hostname, port, _resolve_proxy(hostname, args.proxy))]
         else:
             raw_entries = _parse_url_file(args.url_file)
             if not raw_entries:
@@ -1156,7 +1187,8 @@ Examples:
             raw_urls = []
             for entry, use_proxy in raw_entries:
                 h, dp = extract_hostname_port(entry)
-                effective_proxy = args.proxy if use_proxy else None
+                # proxy=false → always direct; otherwise resolve via --proxy or env vars
+                effective_proxy = _resolve_proxy(h, args.proxy) if use_proxy else None
                 raw_urls.append((h, dp, effective_proxy))
 
         # Run scans
