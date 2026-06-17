@@ -225,7 +225,7 @@ auth.internal.corp.com:443  proxy=true  # explicit → uses --proxy
 public.example.com          proxy=false # bypasses --proxy, connects directly
 ```
 
-Both backends support HTTP CONNECT proxies. The nmap backend passes the proxy via `--proxies`; the openssl backend via `-proxy` to `s_client`.
+Only the openssl backend supports HTTP CONNECT proxies (via `-proxy` to `s_client`). nmap does not support HTTP proxies. When a proxy is in effect for a target, the tool automatically uses openssl for that target regardless of `--backend`.
 
 **Proxy resolution order (per target):**
 1. `--proxy` flag — always used when set; `NO_PROXY` does not override it

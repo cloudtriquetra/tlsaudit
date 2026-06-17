@@ -622,11 +622,8 @@ def scan_with_openssl(hostname, port, proxy=None):
 # nmap backend
 # ---------------------------------------------------------------------------
 
-def _build_nmap_cmd(hostname, port, proxy):
-    cmd = ['nmap', '--script', 'ssl-enum-ciphers', '-p', str(port), hostname, '-oX', '-']
-    if proxy:
-        cmd.extend(['--proxies', proxy])
-    return cmd
+def _build_nmap_cmd(hostname, port):
+    return ['nmap', '--script', 'ssl-enum-ciphers', '-p', str(port), hostname, '-oX', '-']
 
 
 def _run_nmap(cmd, hostname, port):
@@ -711,9 +708,9 @@ def _parse_nmap_xml(xml_text, hostname, port):
     return results
 
 
-def scan_with_nmap(hostname, port, proxy=None):
+def scan_with_nmap(hostname, port):
     """Run nmap ssl-enum-ciphers and return per-protocol raw results dict."""
-    cmd = _build_nmap_cmd(hostname, port, proxy)
+    cmd = _build_nmap_cmd(hostname, port)
     stdout, error = _run_nmap(cmd, hostname, port)
     if error:
         return error
@@ -861,8 +858,12 @@ def _scan_target(hostname, port, backend, proxy):
     host could not be reached at all (all protocols returned ERROR).
     """
     try:
-        if backend == 'nmap':
-            raw = build_full_results(scan_with_nmap(hostname, port, proxy=proxy))
+        if backend == 'nmap' and proxy:
+            # nmap does not support HTTP CONNECT proxies; fall back to openssl
+            print(f"Note: proxy set — nmap does not support HTTP proxies, using openssl for {hostname}:{port}", file=sys.stderr)
+            raw = scan_with_openssl(hostname, port, proxy=proxy)
+        elif backend == 'nmap':
+            raw = build_full_results(scan_with_nmap(hostname, port))
         else:
             raw = scan_with_openssl(hostname, port, proxy=proxy)
         results = normalise_results(raw)
